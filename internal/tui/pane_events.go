@@ -85,19 +85,27 @@ func (e *eventsModel) view(width, height int, focused bool, agentMap map[string]
 
 	contentHeight := maxInt(height-3, 1)
 
-	// ensure cursor is visible
-	if e.cursor >= e.scroll+contentHeight {
-		e.scroll = e.cursor - contentHeight + 1
+	// ensure cursor is visible with 3-item lookahead below
+	scrollPad := 3
+	if e.cursor+scrollPad >= e.scroll+contentHeight {
+		e.scroll = e.cursor + scrollPad - contentHeight + 1
+	}
+	if e.cursor < e.scroll+scrollPad && e.scroll > 0 {
+		e.scroll = maxInt(e.cursor-scrollPad, 0)
 	}
 	if e.cursor < e.scroll {
 		e.scroll = e.cursor
 	}
+	// clamp scroll
+	maxScroll := maxInt(len(e.events)-contentHeight, 0)
+	e.scroll = minInt(e.scroll, maxScroll)
 
 	var lines []string
 	end := minInt(e.scroll+contentHeight, len(e.events))
+	totalDigits := len(fmt.Sprintf("%d", len(e.events)))
 	for i := e.scroll; i < end; i++ {
 		ev := e.events[i]
-		line := e.renderEventLine(ev, i == e.cursor, agentMap, width-4)
+		line := e.renderEventLine(ev, i, i == e.cursor, agentMap, width-4, totalDigits)
 		lines = append(lines, line)
 	}
 
@@ -105,13 +113,17 @@ func (e *eventsModel) view(width, height int, focused bool, agentMap map[string]
 	return paneStyle(focused).Width(width).Render(content)
 }
 
-func (e *eventsModel) renderEventLine(ev model.Event, selected bool, agentMap map[string]int, maxW int) string {
+func (e *eventsModel) renderEventLine(ev model.Event, index int, selected bool, agentMap map[string]int, maxW int, totalDigits int) string {
+	// line number (1-based)
+	numStr := fmt.Sprintf("%*d", totalDigits, index+1)
+
 	ts := formatTime(ev.Timestamp)
 	subtype := orDefault(ev.Subtype, ev.Type)
 	stColor := subtypeColor(ev.Subtype)
 	subtypeStr := lipgloss.NewStyle().Foreground(stColor).Render(truncate(subtype, 20))
 
 	var parts []string
+	parts = append(parts, dimStyle.Render(numStr))
 	parts = append(parts, dimStyle.Render(ts))
 	parts = append(parts, subtypeStr)
 
