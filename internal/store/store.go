@@ -90,6 +90,7 @@ func (s *Store) init(ctx context.Context) error {
 			project_id INTEGER NOT NULL REFERENCES projects(id),
 			slug TEXT,
 			status TEXT DEFAULT 'active',
+			runtime TEXT NOT NULL DEFAULT 'claude',
 			started_at INTEGER NOT NULL,
 			stopped_at INTEGER,
 			transcript_path TEXT,
@@ -158,6 +159,15 @@ func (s *Store) init(ctx context.Context) error {
 			return fmt.Errorf("ddl: %w", err)
 		}
 	}
+
+	// migrations for existing databases
+	migrations := []string{
+		`ALTER TABLE sessions ADD COLUMN runtime TEXT NOT NULL DEFAULT 'claude'`,
+	}
+	for _, m := range migrations {
+		s.db.ExecContext(ctx, m) // ignore errors (column may already exist)
+	}
+
 	return nil
 }
 
@@ -246,25 +256,28 @@ func (q *Queries) DeleteProject(ctx context.Context, projectID int64) error {
 
 // ── Sessions ──
 
-func (q *Queries) UpsertSession(ctx context.Context, id string, projectID int64, slug string, metadata map[string]any, timestamp int64, transcriptPath string) error {
+func (q *Queries) UpsertSession(ctx context.Context, id string, projectID int64, slug string, runtime string, metadata map[string]any, timestamp int64, transcriptPath string) error {
 	now := nowMillis()
 	metaJSON, _ := jsonString(metadata)
+	if runtime == "" {
+		runtime = "claude"
+	}
 	_, err := q.db.ExecContext(ctx, `
-		INSERT INTO sessions (id, project_id, slug, status, started_at, transcript_path, metadata, created_at, updated_at)
-		VALUES (?,?,?,'active',?,?,?,?,?)
+		INSERT INTO sessions (id, project_id, slug, status, runtime, started_at, transcript_path, metadata, created_at, updated_at)
+		VALUES (?,?,?,'active',?,?,?,?,?,?)
 		ON CONFLICT(id) DO UPDATE SET
 			slug = COALESCE(excluded.slug, sessions.slug),
 			transcript_path = COALESCE(excluded.transcript_path, sessions.transcript_path),
 			metadata = COALESCE(excluded.metadata, sessions.metadata),
 			updated_at = ?`,
-		id, projectID, nullIfEmpty(slug), timestamp, nullIfEmpty(transcriptPath), metaJSON, now, now, now)
+		id, projectID, nullIfEmpty(slug), runtime, timestamp, nullIfEmpty(transcriptPath), metaJSON, now, now, now)
 	return err
 }
 
 func (q *Queries) GetSessionByID(ctx context.Context, id string) (*model.Session, error) {
 	row := q.db.QueryRowContext(ctx, `
 		SELECT s.id, s.project_id, COALESCE(p.slug,''), COALESCE(p.name,''),
-			COALESCE(s.slug,''), COALESCE(s.status,''), s.started_at, COALESCE(s.stopped_at,0),
+			COALESCE(s.slug,''), COALESCE(s.status,''), COALESCE(s.runtime,'claude'), s.started_at, COALESCE(s.stopped_at,0),
 			COALESCE(s.transcript_path,''), COALESCE(s.metadata,''),
 			s.event_count, s.agent_count, COALESCE(s.last_activity,0), s.created_at, s.updated_at
 		FROM sessions s LEFT JOIN projects p ON p.id = s.project_id
@@ -275,7 +288,7 @@ func (q *Queries) GetSessionByID(ctx context.Context, id string) (*model.Session
 func (q *Queries) ListSessionsForProject(ctx context.Context, projectID int64) ([]model.Session, error) {
 	rows, err := q.db.QueryContext(ctx, `
 		SELECT s.id, s.project_id, COALESCE(p.slug,''), COALESCE(p.name,''),
-			COALESCE(s.slug,''), COALESCE(s.status,''), s.started_at, COALESCE(s.stopped_at,0),
+			COALESCE(s.slug,''), COALESCE(s.status,''), COALESCE(s.runtime,'claude'), s.started_at, COALESCE(s.stopped_at,0),
 			COALESCE(s.transcript_path,''), COALESCE(s.metadata,''),
 			s.event_count, s.agent_count, COALESCE(s.last_activity,0), s.created_at, s.updated_at
 		FROM sessions s LEFT JOIN projects p ON p.id = s.project_id
@@ -291,7 +304,7 @@ func (q *Queries) ListSessionsForProject(ctx context.Context, projectID int64) (
 func (q *Queries) ListRecentSessions(ctx context.Context, limit int) ([]model.Session, error) {
 	rows, err := q.db.QueryContext(ctx, `
 		SELECT s.id, s.project_id, COALESCE(p.slug,''), COALESCE(p.name,''),
-			COALESCE(s.slug,''), COALESCE(s.status,''), s.started_at, COALESCE(s.stopped_at,0),
+			COALESCE(s.slug,''), COALESCE(s.status,''), COALESCE(s.runtime,'claude'), s.started_at, COALESCE(s.stopped_at,0),
 			COALESCE(s.transcript_path,''), COALESCE(s.metadata,''),
 			s.event_count, s.agent_count, COALESCE(s.last_activity,0), s.created_at, s.updated_at
 		FROM sessions s JOIN projects p ON p.id = s.project_id
@@ -687,7 +700,7 @@ func scanProject(row *sql.Row) (*model.Project, error) {
 func scanSession(row *sql.Row) (*model.Session, error) {
 	var s model.Session
 	err := row.Scan(&s.ID, &s.ProjectID, &s.ProjectSlug, &s.ProjectName,
-		&s.Slug, &s.Status, &s.StartedAt, &s.StoppedAt,
+		&s.Slug, &s.Status, &s.Runtime, &s.StartedAt, &s.StoppedAt,
 		&s.TranscriptPath, &s.Metadata, &s.EventCount, &s.AgentCount,
 		&s.LastActivity, &s.CreatedAt, &s.UpdatedAt)
 	if err == sql.ErrNoRows {
@@ -704,7 +717,7 @@ func scanSessions(rows *sql.Rows) ([]model.Session, error) {
 	for rows.Next() {
 		var s model.Session
 		if err := rows.Scan(&s.ID, &s.ProjectID, &s.ProjectSlug, &s.ProjectName,
-			&s.Slug, &s.Status, &s.StartedAt, &s.StoppedAt,
+			&s.Slug, &s.Status, &s.Runtime, &s.StartedAt, &s.StoppedAt,
 			&s.TranscriptPath, &s.Metadata, &s.EventCount, &s.AgentCount,
 			&s.LastActivity, &s.CreatedAt, &s.UpdatedAt); err != nil {
 			return nil, err
