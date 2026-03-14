@@ -11,6 +11,7 @@ import (
 	"github.com/chojs23/lazyagent/internal/app"
 	"github.com/chojs23/lazyagent/internal/config"
 	"github.com/chojs23/lazyagent/internal/store"
+	"github.com/chojs23/lazyagent/internal/tui"
 )
 
 func main() {
@@ -43,8 +44,7 @@ func run() error {
 	case "health":
 		return runHealth(st, cfg.DBPath)
 	case "tui":
-		fmt.Println("TUI not implemented yet")
-		return nil
+		return tui.Run(st, cfg.RefreshInterval)
 	default:
 		printUsage()
 		return nil
