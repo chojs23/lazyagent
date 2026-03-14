@@ -10,11 +10,12 @@ import (
 )
 
 type detailModel struct {
-	viewport viewport.Model
-	event    *model.Event
-	thread   []model.Event
+	viewport   viewport.Model
+	event      *model.Event
+	eventID    int64
+	thread     []model.Event
 	showThread bool
-	agents   map[string]*model.Agent
+	agents     map[string]*model.Agent
 }
 
 func newDetail() detailModel {
@@ -23,33 +24,41 @@ func newDetail() detailModel {
 }
 
 func (d *detailModel) setEvent(ev *model.Event, agents []model.Agent) {
+	sameEvent := ev != nil && ev.ID == d.eventID
 	d.event = ev
-	d.thread = nil
-	d.showThread = false
 	d.agents = map[string]*model.Agent{}
 	for i := range agents {
 		d.agents[agents[i].ID] = &agents[i]
 	}
-	d.syncContent()
+	if !sameEvent {
+		d.thread = nil
+		d.showThread = false
+		if ev != nil {
+			d.eventID = ev.ID
+		} else {
+			d.eventID = 0
+		}
+	}
+	d.syncContent(sameEvent)
 }
 
 func (d *detailModel) setThread(thread []model.Event) {
 	d.thread = thread
 	d.showThread = true
-	d.syncContent()
+	d.syncContent(false)
 }
 
 func (d *detailModel) toggleThread() bool {
 	if d.showThread {
 		d.showThread = false
-		d.syncContent()
+		d.syncContent(false)
 		return false
 	}
 	// caller should fetch thread and call setThread
 	return true
 }
 
-func (d *detailModel) syncContent() {
+func (d *detailModel) syncContent(preserveScroll bool) {
 	if d.event == nil {
 		d.viewport.SetContent("No event selected")
 		return
@@ -90,7 +99,9 @@ func (d *detailModel) syncContent() {
 	}
 
 	d.viewport.SetContent(content)
-	d.viewport.GotoTop()
+	if !preserveScroll {
+		d.viewport.GotoTop()
+	}
 }
 
 func (d *detailModel) view(width, height int, focused bool) string {
