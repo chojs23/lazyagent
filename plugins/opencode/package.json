@@ -1,0 +1,14 @@
+{
+  "name": "lazyagent-opencode-plugin",
+  "version": "0.1.0",
+  "description": "OpenCode plugin that forwards events to lazyagent for observability",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch"
+  },
+  "devDependencies": {
+    "@opencode-ai/plugin": "^0.1.0",
+    "typescript": "^5.5.0"
+  }
+}
