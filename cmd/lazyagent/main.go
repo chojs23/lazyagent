@@ -144,15 +144,21 @@ func initClaude() error {
 		settings = map[string]any{}
 	}
 
+	hookEntry := func() []any {
+		return []any{map[string]any{
+			"matcher": "",
+			"hooks":   []any{map[string]any{"type": "command", "command": hookCmd}},
+		}}
+	}
 	hooks := map[string]any{
-		"PreToolUse":       []any{map[string]any{"type": "command", "command": hookCmd}},
-		"PostToolUse":      []any{map[string]any{"type": "command", "command": hookCmd}},
-		"SessionStart":     []any{map[string]any{"type": "command", "command": hookCmd}},
-		"SessionEnd":       []any{map[string]any{"type": "command", "command": hookCmd}},
-		"Stop":             []any{map[string]any{"type": "command", "command": hookCmd}},
-		"SubagentStop":     []any{map[string]any{"type": "command", "command": hookCmd}},
-		"Notification":     []any{map[string]any{"type": "command", "command": hookCmd}},
-		"UserPromptSubmit": []any{map[string]any{"type": "command", "command": hookCmd}},
+		"PreToolUse":       hookEntry(),
+		"PostToolUse":      hookEntry(),
+		"SessionStart":     hookEntry(),
+		"SessionEnd":       hookEntry(),
+		"Stop":             hookEntry(),
+		"SubagentStop":     hookEntry(),
+		"Notification":     hookEntry(),
+		"UserPromptSubmit": hookEntry(),
 	}
 	settings["hooks"] = hooks
 
