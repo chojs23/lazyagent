@@ -121,9 +121,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.handleKey(msg)
 	}
 
-	// forward to active detail viewport
+	// forward to detail viewport
 	if m.focus == focusDetail {
-		return m.updateDetail(msg)
+		var cmd tea.Cmd
+		m.detail.viewport, cmd = m.detail.viewport.Update(msg)
+		return m, cmd
 	}
 
 	return m, nil
@@ -183,7 +185,9 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case focusEvents:
 		return m.updateEvents(msg)
 	case focusDetail:
-		return m.updateDetail(msg)
+		var cmd tea.Cmd
+		m.detail.viewport, cmd = m.detail.viewport.Update(msg)
+		return m, cmd
 	}
 
 	return m, nil
@@ -231,36 +235,6 @@ func (m Model) updateEvents(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 	}
 	return m, nil
-}
-
-func (m Model) updateDetail(msg tea.Msg) (tea.Model, tea.Cmd) {
-	switch msg := msg.(type) {
-	case tea.KeyMsg:
-		switch msg.String() {
-		case "l":
-			m.detail.expandJSON()
-			m.status = "JSON expanded (h to close)"
-			return m, nil
-		case "h":
-			m.detail.collapseJSON()
-			m.status = "JSON collapsed"
-			return m, nil
-		case "enter":
-			if needsFetch := m.detail.toggleThread(); needsFetch {
-				return m, m.loadThreadCmd()
-			}
-			return m, nil
-		}
-	}
-	// forward scroll to the focused viewport
-	if m.detail.focus == detailFocusJSON {
-		var cmd tea.Cmd
-		m.detail.jsonVP, cmd = m.detail.jsonVP.Update(msg)
-		return m, cmd
-	}
-	var cmd tea.Cmd
-	m.detail.infoVP, cmd = m.detail.infoVP.Update(msg)
-	return m, cmd
 }
 
 func (m Model) updateSearch(msg tea.Msg) (tea.Model, tea.Cmd) {
