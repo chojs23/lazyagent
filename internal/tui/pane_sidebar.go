@@ -96,6 +96,42 @@ func (s *sidebarModel) moveDown() {
 	}
 }
 
+func (s *sidebarModel) halfPageUp(viewH int) {
+	if s.focusAgents {
+		s.agentCursor = maxInt(s.agentCursor-viewH/2, 0)
+	} else {
+		s.cursor = maxInt(s.cursor-viewH/2, 0)
+	}
+}
+
+func (s *sidebarModel) halfPageDown(viewH int) {
+	if s.focusAgents {
+		s.agentCursor = minInt(s.agentCursor+viewH/2, maxInt(len(s.agents)-1, 0))
+	} else {
+		s.cursor = minInt(s.cursor+viewH/2, maxInt(len(s.items)-1, 0))
+	}
+}
+
+func (s *sidebarModel) goTop() {
+	if s.focusAgents {
+		s.agentCursor = 0
+	} else {
+		s.cursor = 0
+	}
+}
+
+func (s *sidebarModel) goBottom() {
+	if s.focusAgents {
+		if len(s.agents) > 0 {
+			s.agentCursor = len(s.agents) - 1
+		}
+	} else {
+		if len(s.items) > 0 {
+			s.cursor = len(s.items) - 1
+		}
+	}
+}
+
 func (s *sidebarModel) enter() (sessionChanged bool) {
 	if s.focusAgents {
 		if s.agentCursor < len(s.agents) {

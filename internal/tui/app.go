@@ -55,6 +55,7 @@ type Model struct {
 	width     int
 	height    int
 	lastError error
+	lastKey   string
 
 	allSessions []model.Session
 }
@@ -185,6 +186,28 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case focusEvents:
 		return m.updateEvents(msg)
 	case focusDetail:
+		if kmsg, ok := msg.(tea.KeyMsg); ok {
+			k := kmsg.String()
+			defer func() { m.lastKey = k }()
+			switch k {
+			case "ctrl+d":
+				m.detail.viewport.HalfPageDown()
+				return m, nil
+			case "ctrl+u":
+				m.detail.viewport.HalfPageUp()
+				return m, nil
+			case "G":
+				m.detail.viewport.GotoBottom()
+				return m, nil
+			case "g":
+				if m.lastKey == "g" {
+					m.detail.viewport.GotoTop()
+					m.lastKey = ""
+					return m, nil
+				}
+				return m, nil
+			}
+		}
 		var cmd tea.Cmd
 		m.detail.viewport, cmd = m.detail.viewport.Update(msg)
 		return m, cmd
@@ -194,11 +217,25 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 }
 
 func (m Model) updateSidebar(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	switch msg.String() {
+	k := msg.String()
+	defer func() { m.lastKey = k }()
+	switch k {
 	case "j", "down":
 		m.sidebar.moveDown()
 	case "k", "up":
 		m.sidebar.moveUp()
+	case "ctrl+d":
+		m.sidebar.halfPageDown(m.sidebar.height / 2)
+	case "ctrl+u":
+		m.sidebar.halfPageUp(m.sidebar.height / 2)
+	case "G":
+		m.sidebar.goBottom()
+	case "g":
+		if m.lastKey == "g" {
+			m.sidebar.goTop()
+			m.lastKey = ""
+			return m, nil
+		}
 	case "enter":
 		if m.sidebar.focusAgents {
 			m.sidebar.enter()
@@ -222,13 +259,31 @@ func (m Model) updateSidebar(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 }
 
 func (m Model) updateEvents(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	switch msg.String() {
+	k := msg.String()
+	defer func() { m.lastKey = k }()
+	switch k {
 	case "j", "down":
 		m.events.moveDown()
 		m.syncDetailFromEvent()
 	case "k", "up":
 		m.events.moveUp()
 		m.syncDetailFromEvent()
+	case "ctrl+d":
+		m.events.halfPageDown(m.events.height / 2)
+		m.syncDetailFromEvent()
+	case "ctrl+u":
+		m.events.halfPageUp(m.events.height / 2)
+		m.syncDetailFromEvent()
+	case "G":
+		m.events.goBottom()
+		m.syncDetailFromEvent()
+	case "g":
+		if m.lastKey == "g" {
+			m.events.goTop()
+			m.syncDetailFromEvent()
+			m.lastKey = ""
+			return m, nil
+		}
 	case "enter":
 		if needsFetch := m.detail.toggleThread(); needsFetch {
 			return m, m.loadThreadCmd()

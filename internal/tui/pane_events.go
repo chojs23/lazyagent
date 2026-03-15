@@ -47,6 +47,26 @@ func (e *eventsModel) moveDown() {
 	}
 }
 
+func (e *eventsModel) halfPageUp(viewH int) {
+	e.cursor = maxInt(e.cursor-viewH/2, 0)
+	e.autoFollow = false
+}
+
+func (e *eventsModel) halfPageDown(viewH int) {
+	e.cursor = minInt(e.cursor+viewH/2, maxInt(len(e.events)-1, 0))
+}
+
+func (e *eventsModel) goTop() {
+	e.cursor = 0
+	e.autoFollow = false
+}
+
+func (e *eventsModel) goBottom() {
+	if len(e.events) > 0 {
+		e.cursor = len(e.events) - 1
+	}
+}
+
 func (e *eventsModel) toggleAutoFollow() {
 	e.autoFollow = !e.autoFollow
 	if e.autoFollow && len(e.events) > 0 {
