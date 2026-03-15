@@ -15,8 +15,7 @@ type keyMap struct {
 	AgentAll   key.Binding
 	Delete     key.Binding
 	ClearEvt   key.Binding
-	Thread     key.Binding
-	Quit       key.Binding
+	Quit key.Binding
 }
 
 func defaultKeyMap() keyMap {
@@ -33,8 +32,7 @@ func defaultKeyMap() keyMap {
 		AgentAll:   key.NewBinding(key.WithKeys("a"), key.WithHelp("a", "all agents")),
 		Delete:     key.NewBinding(key.WithKeys("d"), key.WithHelp("d", "delete")),
 		ClearEvt:   key.NewBinding(key.WithKeys("D"), key.WithHelp("D", "clear events")),
-		Thread:     key.NewBinding(key.WithKeys("enter"), key.WithHelp("enter", "select/thread")),
-		Quit:       key.NewBinding(key.WithKeys("q", "ctrl+c"), key.WithHelp("q", "quit")),
+Quit:       key.NewBinding(key.WithKeys("q", "ctrl+c"), key.WithHelp("q", "quit")),
 	}
 }
 

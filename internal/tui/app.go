@@ -111,15 +111,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.applyData(msg)
 		return m, nil
 
-	case threadMsg:
-		if msg.err != nil {
-			m.status = "Thread error: " + msg.err.Error()
-			return m, nil
-		}
-		m.detail.setThread(msg.events)
-		m.status = fmt.Sprintf("Thread: %d events", len(msg.events))
-		return m, nil
-
 	case tickMsg:
 		return m, tea.Batch(m.loadDataCmd(), tickCmd(m.refreshInterval))
 
@@ -289,11 +280,6 @@ func (m Model) updateEvents(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		m.lastKey = "g"
 		return m, nil
-	case "enter":
-		if needsFetch := m.detail.toggleThread(); needsFetch {
-			m.lastKey = k
-			return m, m.loadThreadCmd()
-		}
 	}
 	m.lastKey = k
 	return m, nil
@@ -480,18 +466,6 @@ func (m Model) loadDataCmd() tea.Cmd {
 			events:   events,
 			rawCount: rawCount,
 		}
-	}
-}
-
-func (m Model) loadThreadCmd() tea.Cmd {
-	st := m.store
-	eventID := m.events.selectedEventID()
-	return func() tea.Msg {
-		if eventID == 0 {
-			return threadMsg{}
-		}
-		events, err := st.Read().GetEventThread(context.Background(), eventID)
-		return threadMsg{events: events, err: err}
 	}
 }
 

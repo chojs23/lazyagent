@@ -10,12 +10,10 @@ import (
 )
 
 type detailModel struct {
-	viewport   viewport.Model
-	event      *model.Event
-	eventID    int64
-	thread     []model.Event
-	showThread bool
-	agents     map[string]*model.Agent
+	viewport viewport.Model
+	event    *model.Event
+	eventID  int64
+	agents   map[string]*model.Agent
 }
 
 func newDetail() detailModel {
@@ -35,8 +33,6 @@ func (d *detailModel) setEvent(ev *model.Event, agents []model.Agent) {
 		d.agents[agents[i].ID] = &agents[i]
 	}
 	if !sameEvent {
-		d.thread = nil
-		d.showThread = false
 		if ev != nil {
 			d.eventID = ev.ID
 		} else {
@@ -44,22 +40,6 @@ func (d *detailModel) setEvent(ev *model.Event, agents []model.Agent) {
 		}
 	}
 	d.syncContent(sameEvent)
-}
-
-func (d *detailModel) setThread(thread []model.Event) {
-	d.thread = thread
-	d.showThread = true
-	d.syncContent(false)
-}
-
-func (d *detailModel) toggleThread() bool {
-	if d.showThread {
-		d.showThread = false
-		d.syncContent(false)
-		return false
-	}
-	// caller should fetch thread and call setThread
-	return true
 }
 
 func (d *detailModel) syncContent(preserveScroll bool) {
@@ -91,17 +71,6 @@ func (d *detailModel) syncContent(preserveScroll bool) {
 
 	content := header + "\n" + sep + "\n" + payload
 
-	if d.showThread && len(d.thread) > 0 {
-		content += "\n\n" + dimStyle.Render("── Thread ──") + "\n"
-		for _, te := range d.thread {
-			marker := "  "
-			if te.ID == ev.ID {
-				marker = "> "
-			}
-			content += fmt.Sprintf("%s%s  %s\n", marker, formatTime(te.Timestamp), model.EventSummary(te))
-		}
-	}
-
 	d.viewport.SetContent(content)
 	if !preserveScroll {
 		d.viewport.GotoTop()
@@ -113,9 +82,6 @@ func (d *detailModel) view(width, height int, focused bool) string {
 	d.viewport.SetHeight(maxInt(height-3, 4))
 
 	title := titleStyle.Render("Detail")
-	if d.showThread {
-		title += dimStyle.Render(" [thread]")
-	}
 	content := title + "\n" + d.viewport.View()
 	return paneStyle(focused).Width(width).Render(content)
 }
