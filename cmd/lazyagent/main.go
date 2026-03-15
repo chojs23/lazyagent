@@ -197,6 +197,10 @@ func initOpenCode() error {
 	}
 
 	pluginPath := filepath.Join(dir, "lazyagent.ts")
+	if _, err := os.Stat(pluginPath); err == nil {
+		fmt.Printf("OpenCode plugin already exists at %s (skipped)\n", pluginPath)
+		return nil
+	}
 	if err := os.WriteFile(pluginPath, []byte(openCodePluginTS), 0o644); err != nil {
 		return err
 	}
