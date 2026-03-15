@@ -32,11 +32,6 @@ type dataMsg struct {
 	err      error
 }
 
-type threadMsg struct {
-	events []model.Event
-	err    error
-}
-
 type tickMsg time.Time
 
 type Model struct {
@@ -94,6 +89,16 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
+		// pre-calculate pane dimensions for use in Update()
+		sidebarW := maxInt(m.width/4, 24)
+		rightW := m.width - sidebarW
+		eventsH := maxInt((m.height-3)*55/100, 6)
+		detailH := maxInt(m.height-3-eventsH, 6)
+		sidebarH := m.height - 3
+		m.events.height = eventsH
+		m.sidebar.height = sidebarH
+		m.detail.viewport.SetWidth(maxInt(rightW-4, 10))
+		m.detail.viewport.SetHeight(maxInt(detailH-3, 4))
 		return m, nil
 
 	case dataMsg:
@@ -186,28 +191,23 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case focusEvents:
 		return m.updateEvents(msg)
 	case focusDetail:
-		if kmsg, ok := msg.(tea.KeyMsg); ok {
-			k := kmsg.String()
-			defer func() { m.lastKey = k }()
-			switch k {
-			case "ctrl+d":
-				m.detail.viewport.HalfPageDown()
-				return m, nil
-			case "ctrl+u":
-				m.detail.viewport.HalfPageUp()
-				return m, nil
-			case "G":
-				m.detail.viewport.GotoBottom()
-				return m, nil
-			case "g":
-				if m.lastKey == "g" {
-					m.detail.viewport.GotoTop()
-					m.lastKey = ""
-					return m, nil
-				}
+		k := msg.String()
+		switch k {
+		case "G":
+			m.detail.viewport.GotoBottom()
+			m.lastKey = k
+			return m, nil
+		case "g":
+			if m.lastKey == "g" {
+				m.detail.viewport.GotoTop()
+				m.lastKey = ""
 				return m, nil
 			}
+			m.lastKey = "g"
+			return m, nil
 		}
+		m.lastKey = k
+		// delegate to viewport's built-in key handling (ctrl+u/d, j/k, etc.)
 		var cmd tea.Cmd
 		m.detail.viewport, cmd = m.detail.viewport.Update(msg)
 		return m, cmd
@@ -218,16 +218,15 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 func (m Model) updateSidebar(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	k := msg.String()
-	defer func() { m.lastKey = k }()
 	switch k {
 	case "j", "down":
 		m.sidebar.moveDown()
 	case "k", "up":
 		m.sidebar.moveUp()
 	case "ctrl+d":
-		m.sidebar.halfPageDown(m.sidebar.height / 2)
+		m.sidebar.halfPageDown(m.sidebar.height)
 	case "ctrl+u":
-		m.sidebar.halfPageUp(m.sidebar.height / 2)
+		m.sidebar.halfPageUp(m.sidebar.height)
 	case "G":
 		m.sidebar.goBottom()
 	case "g":
@@ -236,6 +235,8 @@ func (m Model) updateSidebar(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.lastKey = ""
 			return m, nil
 		}
+		m.lastKey = "g"
+		return m, nil
 	case "enter":
 		if m.sidebar.focusAgents {
 			m.sidebar.enter()
@@ -247,20 +248,22 @@ func (m Model) updateSidebar(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				}
 			}
 			m.filter.setAgentLabel(agentLabel)
+			m.lastKey = k
 			return m, m.loadDataCmd()
 		}
 		if m.sidebar.enter() {
+			m.lastKey = k
 			return m, m.loadDataCmd()
 		}
 	case "tab":
 		m.sidebar.toggleAgentFocus()
 	}
+	m.lastKey = k
 	return m, nil
 }
 
 func (m Model) updateEvents(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	k := msg.String()
-	defer func() { m.lastKey = k }()
 	switch k {
 	case "j", "down":
 		m.events.moveDown()
@@ -269,10 +272,10 @@ func (m Model) updateEvents(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.events.moveUp()
 		m.syncDetailFromEvent()
 	case "ctrl+d":
-		m.events.halfPageDown(m.events.height / 2)
+		m.events.halfPageDown(m.events.height)
 		m.syncDetailFromEvent()
 	case "ctrl+u":
-		m.events.halfPageUp(m.events.height / 2)
+		m.events.halfPageUp(m.events.height)
 		m.syncDetailFromEvent()
 	case "G":
 		m.events.goBottom()
@@ -284,11 +287,15 @@ func (m Model) updateEvents(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.lastKey = ""
 			return m, nil
 		}
+		m.lastKey = "g"
+		return m, nil
 	case "enter":
 		if needsFetch := m.detail.toggleThread(); needsFetch {
+			m.lastKey = k
 			return m, m.loadThreadCmd()
 		}
 	}
+	m.lastKey = k
 	return m, nil
 }
 

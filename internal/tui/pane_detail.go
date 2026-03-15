@@ -20,6 +20,10 @@ type detailModel struct {
 
 func newDetail() detailModel {
 	vp := viewport.New(viewport.WithWidth(0), viewport.WithHeight(0))
+	km := vp.KeyMap
+	km.HalfPageUp.SetKeys("ctrl+u")
+	km.HalfPageDown.SetKeys("ctrl+d")
+	vp.KeyMap = km
 	return detailModel{viewport: vp, agents: map[string]*model.Agent{}}
 }
 
