@@ -174,56 +174,74 @@ func (d *detailModel) syncJSON(preserveScroll bool) {
 // ── View ──
 
 func (d *detailModel) view(width, height int, focused bool) string {
-	innerH := maxInt(height-3, 4)
+	innerH := maxInt(height-4, 4) // inside the outer border
+	contentW := maxInt(width-4, 20) // inside border + padding
 
 	var infoW, jsonW int
 	if d.jsonExpand {
-		infoW = maxInt(width*30/100, 16)
-		jsonW = width - infoW - 3
+		infoW = maxInt(contentW*30/100, 14)
+		jsonW = contentW - infoW - 1 // 1 for the separator
 	} else {
-		infoW = maxInt(width*65/100, 20)
-		jsonW = width - infoW - 3
+		infoW = maxInt(contentW*65/100, 18)
+		jsonW = contentW - infoW - 1
 	}
 
-	d.infoVP.SetWidth(maxInt(infoW-2, 8))
-	d.infoVP.SetHeight(maxInt(innerH-2, 2))
-	d.jsonVP.SetWidth(maxInt(jsonW-2, 8))
-	d.jsonVP.SetHeight(maxInt(innerH-2, 2))
+	d.infoVP.SetWidth(infoW)
+	d.infoVP.SetHeight(innerH)
+	d.jsonVP.SetWidth(jsonW)
+	d.jsonVP.SetHeight(innerH)
 
-	// info box
-	infoBorder := lipgloss.NormalBorder()
-	infoStyle := lipgloss.NewStyle().
-		Border(infoBorder).
-		BorderForeground(colorGray).
-		Width(infoW).
-		Height(innerH)
-	if focused && d.focus == detailFocusInfo {
-		infoStyle = infoStyle.BorderForeground(colorCyan)
-	}
-	infoBox := infoStyle.Render(d.infoVP.View())
+	// get rendered lines from each viewport
+	infoRendered := d.infoVP.View()
+	jsonRendered := d.jsonVP.View()
 
-	// json box
-	jsonBorderColor := colorGray
-	if focused && d.focus == detailFocusJSON {
-		jsonBorderColor = colorCyan
-	}
-	jsonTitle := " JSON "
+	infoLines := strings.Split(infoRendered, "\n")
+	jsonLines := strings.Split(jsonRendered, "\n")
+
+	// json header
+	jsonTitle := "JSON"
 	if d.jsonExpand {
-		jsonTitle = " JSON [h: close] "
+		jsonTitle = "JSON [h:close]"
 	} else {
-		jsonTitle = " JSON [l: expand] "
+		jsonTitle = "JSON [l:expand]"
 	}
-	jsonStyle := lipgloss.NewStyle().
-		Border(lipgloss.NormalBorder()).
-		BorderForeground(jsonBorderColor).
-		Width(jsonW).
-		Height(innerH)
-	jsonHeader := lipgloss.NewStyle().Foreground(jsonBorderColor).Render(jsonTitle)
-	jsonContent := jsonHeader + "\n" + d.jsonVP.View()
-	jsonBox := jsonStyle.Render(jsonContent)
+	jsonTitleColor := colorGray
+	if focused && d.focus == detailFocusJSON {
+		jsonTitleColor = colorCyan
+	}
 
-	row := lipgloss.JoinHorizontal(lipgloss.Top, infoBox, jsonBox)
-	return row
+	// separator character styling
+	sep := dimStyle.Render("│")
+	sepTitle := dimStyle.Render("┤") + lipgloss.NewStyle().Foreground(jsonTitleColor).Render(jsonTitle) + dimStyle.Render("├")
+
+	// combine lines side by side
+	var combined []string
+	for i := 0; i < innerH; i++ {
+		infoLine := padRight(getLine(infoLines, i), infoW)
+		jsonLine := padRight(getLine(jsonLines, i), jsonW)
+
+		divider := sep
+		if i == 0 {
+			divider = sepTitle
+		}
+		combined = append(combined, infoLine+divider+jsonLine)
+	}
+
+	content := strings.Join(combined, "\n")
+	style := paneStyle(focused).Width(width)
+	return style.Render(content)
+}
+
+func getLine(lines []string, i int) string {
+	if i < len(lines) {
+		return lines[i]
+	}
+	return ""
+}
+
+func padRight(s string, width int) string {
+	// use lipgloss to handle ANSI-aware padding
+	return lipgloss.NewStyle().Width(width).Render(s)
 }
 
 // ── Helpers ──
