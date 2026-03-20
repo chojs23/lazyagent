@@ -63,6 +63,7 @@ func (s *Store) HealthCheck(ctx context.Context) error {
 func (s *Store) init(ctx context.Context) error {
 	pragmas := []string{
 		"PRAGMA journal_mode = WAL",
+		"PRAGMA busy_timeout = 5000",
 		"PRAGMA synchronous = NORMAL",
 		"PRAGMA foreign_keys = ON",
 		"PRAGMA cache_size = -64000",
