@@ -286,12 +286,12 @@ func (d *detailModel) renderGenericDetail(payload map[string]any) string {
 }
 
 func (d *detailModel) view(width, height int, focused bool) string {
-	d.viewport.SetWidth(maxInt(width-4, 10))
-	d.viewport.SetHeight(maxInt(height-3, 4))
+	d.viewport.SetWidth(max(width-4, 10))
+	d.viewport.SetHeight(max(height-3, 4))
 
 	title := titleStyle.Render("Detail")
 	content := title + "\n" + d.viewport.View()
-	return paneStyle(focused).Width(width).Render(content)
+	return paneStyle(focused).Width(width).Height(height).Render(content)
 }
 
 // helpers

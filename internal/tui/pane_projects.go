@@ -60,7 +60,7 @@ func (p *projectsModel) rebuildItems() {
 		}
 	}
 	if p.cursor >= len(p.items) {
-		p.cursor = maxInt(len(p.items)-1, 0)
+		p.cursor = max(len(p.items)-1, 0)
 	}
 }
 
@@ -77,11 +77,11 @@ func (p *projectsModel) moveDown() {
 }
 
 func (p *projectsModel) halfPageUp(viewH int) {
-	p.cursor = maxInt(p.cursor-viewH/2, 0)
+	p.cursor = max(p.cursor-viewH/2, 0)
 }
 
 func (p *projectsModel) halfPageDown(viewH int) {
-	p.cursor = minInt(p.cursor+viewH/2, maxInt(len(p.items)-1, 0))
+	p.cursor = min(p.cursor+viewH/2, max(len(p.items)-1, 0))
 }
 
 func (p *projectsModel) goTop() {
@@ -137,7 +137,7 @@ func (p *projectsModel) view(width, height int, focused bool) string {
 
 	title := titleStyle.Render("Projects")
 
-	contentHeight := maxInt(height-3, 1)
+	contentHeight := max(height-3, 1)
 
 	var lines []string
 	for i, item := range p.items {
@@ -189,10 +189,10 @@ func (p *projectsModel) view(width, height int, focused bool) string {
 	if p.cursor < p.scroll {
 		p.scroll = p.cursor
 	}
-	maxScroll := maxInt(len(lines)-contentHeight, 0)
-	p.scroll = minInt(p.scroll, maxScroll)
+	maxScroll := max(len(lines)-contentHeight, 0)
+	p.scroll = min(p.scroll, maxScroll)
 
 	visible := sliceLines(lines, p.scroll, contentHeight)
 	content := title + "\n" + strings.Join(visible, "\n")
-	return paneStyle(focused).Width(width).Render(content)
+	return paneStyle(focused).Width(width).Height(height).Render(content)
 }

@@ -96,8 +96,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.projects.height = sz.projH
 		m.agents.height = sz.agentH
 		m.events.height = sz.eventsH
-		m.detail.viewport.SetWidth(maxInt(sz.rightW-4, 10))
-		m.detail.viewport.SetHeight(maxInt(sz.detailH-3, 4))
+		m.detail.viewport.SetWidth(max(sz.rightW-4, 10))
+		m.detail.viewport.SetHeight(max(sz.detailH-3, 4))
 		return m, nil
 
 	case dataMsg:
@@ -435,7 +435,7 @@ type paneSizes struct {
 }
 
 func (m Model) calcSizes() paneSizes {
-	sidebarW := maxInt(m.width/4, 24)
+	sidebarW := max(m.width/4, 24)
 	rightW := m.width - sidebarW
 	leftH := m.height - 3
 	rightH := m.height - 3
@@ -444,28 +444,28 @@ func (m Model) calcSizes() paneSizes {
 	var projH, agentH int
 	switch m.focus {
 	case focusProjects:
-		projH = maxInt(leftH*70/100, 6)
-		agentH = maxInt(leftH-projH, 4)
+		projH = max(leftH*70/100, 6)
+		agentH = max(leftH-projH, 4)
 	case focusAgents:
-		agentH = maxInt(leftH*70/100, 6)
-		projH = maxInt(leftH-agentH, 4)
+		agentH = max(leftH*70/100, 6)
+		projH = max(leftH-agentH, 4)
 	default:
-		projH = maxInt(leftH*55/100, 6)
-		agentH = maxInt(leftH-projH, 4)
+		projH = max(leftH*55/100, 6)
+		agentH = max(leftH-projH, 4)
 	}
 
 	// right: events vs detail — 7:3 ratio based on focus
 	var eventsH, detailH int
 	switch m.focus {
 	case focusEvents:
-		eventsH = maxInt(rightH*70/100, 6)
-		detailH = maxInt(rightH-eventsH, 4)
+		eventsH = max(rightH*70/100, 6)
+		detailH = max(rightH-eventsH, 4)
 	case focusDetail:
-		detailH = maxInt(rightH*70/100, 6)
-		eventsH = maxInt(rightH-detailH, 4)
+		detailH = max(rightH*70/100, 6)
+		eventsH = max(rightH-detailH, 4)
 	default:
-		eventsH = maxInt(rightH*55/100, 6)
-		detailH = maxInt(rightH-eventsH, 4)
+		eventsH = max(rightH*55/100, 6)
+		detailH = max(rightH-eventsH, 4)
 	}
 
 	return paneSizes{sidebarW, rightW, projH, agentH, eventsH, detailH}

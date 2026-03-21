@@ -21,7 +21,7 @@ func newAgents() agentsModel {
 func (a *agentsModel) setAgents(agents []model.Agent) {
 	a.agents = agents
 	if a.cursor >= len(a.agents) {
-		a.cursor = maxInt(len(a.agents)-1, 0)
+		a.cursor = max(len(a.agents)-1, 0)
 	}
 }
 
@@ -38,11 +38,11 @@ func (a *agentsModel) moveDown() {
 }
 
 func (a *agentsModel) halfPageUp(viewH int) {
-	a.cursor = maxInt(a.cursor-viewH/2, 0)
+	a.cursor = max(a.cursor-viewH/2, 0)
 }
 
 func (a *agentsModel) halfPageDown(viewH int) {
-	a.cursor = minInt(a.cursor+viewH/2, maxInt(len(a.agents)-1, 0))
+	a.cursor = min(a.cursor+viewH/2, max(len(a.agents)-1, 0))
 }
 
 func (a *agentsModel) goTop() {
@@ -75,7 +75,7 @@ func (a *agentsModel) view(width, height int, focused bool) string {
 
 	title := titleStyle.Render("Agents")
 
-	contentHeight := maxInt(height-3, 1)
+	contentHeight := max(height-3, 1)
 
 	var lines []string
 	for i, ag := range a.agents {
@@ -117,18 +117,18 @@ func (a *agentsModel) view(width, height int, focused bool) string {
 	if a.cursor < a.scroll {
 		a.scroll = a.cursor
 	}
-	maxScroll := maxInt(len(lines)-contentHeight, 0)
-	a.scroll = minInt(a.scroll, maxScroll)
+	maxScroll := max(len(lines)-contentHeight, 0)
+	a.scroll = min(a.scroll, maxScroll)
 
 	visible := sliceLines(lines, a.scroll, contentHeight)
 	content := title + "\n" + strings.Join(visible, "\n")
-	return paneStyle(focused).Width(width).Render(content)
+	return paneStyle(focused).Width(width).Height(height).Render(content)
 }
 
 func sliceLines(lines []string, offset, count int) []string {
 	if offset >= len(lines) {
 		return nil
 	}
-	end := minInt(offset+count, len(lines))
+	end := min(offset+count, len(lines))
 	return lines[offset:end]
 }

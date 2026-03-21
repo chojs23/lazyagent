@@ -30,7 +30,7 @@ func (e *eventsModel) setEvents(events []model.Event, rawCount int) {
 		e.cursor = len(events) - 1
 	}
 	if e.cursor >= len(events) {
-		e.cursor = maxInt(len(events)-1, 0)
+		e.cursor = max(len(events)-1, 0)
 	}
 }
 
@@ -48,12 +48,12 @@ func (e *eventsModel) moveDown() {
 }
 
 func (e *eventsModel) halfPageUp(viewH int) {
-	e.cursor = maxInt(e.cursor-viewH/2, 0)
+	e.cursor = max(e.cursor-viewH/2, 0)
 	e.autoFollow = false
 }
 
 func (e *eventsModel) halfPageDown(viewH int) {
-	e.cursor = minInt(e.cursor+viewH/2, maxInt(len(e.events)-1, 0))
+	e.cursor = min(e.cursor+viewH/2, max(len(e.events)-1, 0))
 }
 
 func (e *eventsModel) goTop() {
@@ -82,13 +82,6 @@ func (e *eventsModel) selectedEvent() *model.Event {
 	return nil
 }
 
-func (e *eventsModel) selectedEventID() int64 {
-	if ev := e.selectedEvent(); ev != nil {
-		return ev.ID
-	}
-	return 0
-}
-
 func (e *eventsModel) view(width, height int, focused bool, agentMap map[string]int) string {
 	e.height = height
 	e.width = width
@@ -103,7 +96,7 @@ func (e *eventsModel) view(width, height int, focused bool, agentMap map[string]
 		headerLine += dimStyle.Render(" [auto]")
 	}
 
-	contentHeight := maxInt(height-3, 1)
+	contentHeight := max(height-3, 1)
 
 	// ensure cursor is visible with 3-item lookahead below
 	scrollPad := 3
@@ -111,17 +104,17 @@ func (e *eventsModel) view(width, height int, focused bool, agentMap map[string]
 		e.scroll = e.cursor + scrollPad - contentHeight + 1
 	}
 	if e.cursor < e.scroll+scrollPad && e.scroll > 0 {
-		e.scroll = maxInt(e.cursor-scrollPad, 0)
+		e.scroll = max(e.cursor-scrollPad, 0)
 	}
 	if e.cursor < e.scroll {
 		e.scroll = e.cursor
 	}
 	// clamp scroll
-	maxScroll := maxInt(len(e.events)-contentHeight, 0)
-	e.scroll = minInt(e.scroll, maxScroll)
+	maxScroll := max(len(e.events)-contentHeight, 0)
+	e.scroll = min(e.scroll, maxScroll)
 
 	var lines []string
-	end := minInt(e.scroll+contentHeight, len(e.events))
+	end := min(e.scroll+contentHeight, len(e.events))
 	totalDigits := len(fmt.Sprintf("%d", len(e.events)))
 	for i := e.scroll; i < end; i++ {
 		ev := e.events[i]
@@ -130,7 +123,7 @@ func (e *eventsModel) view(width, height int, focused bool, agentMap map[string]
 	}
 
 	content := headerLine + "\n" + strings.Join(lines, "\n")
-	return paneStyle(focused).Width(width).Render(content)
+	return paneStyle(focused).Width(width).Height(height).Render(content)
 }
 
 func (e *eventsModel) renderEventLine(ev model.Event, index int, selected bool, agentMap map[string]int, maxW int, totalDigits int) string {
