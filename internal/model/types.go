@@ -43,6 +43,7 @@ type Session struct {
 	ProjectName    string
 	Slug           string
 	Status         string
+	Runtime        string
 	StartedAt      int64
 	StoppedAt      int64
 	TranscriptPath string

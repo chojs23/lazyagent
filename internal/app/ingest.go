@@ -40,7 +40,7 @@ func IngestClaudeEvent(ctx context.Context, st *store.Store, payload map[string]
 			projectID = id
 		}
 
-		if err := q.UpsertSession(ctx, parsed.SessionID, projectID, parsed.Slug, parsed.Metadata, parsed.Timestamp, parsed.TranscriptPath); err != nil {
+		if err := q.UpsertSession(ctx, parsed.SessionID, projectID, parsed.Slug, "claude", parsed.Metadata, parsed.Timestamp, parsed.TranscriptPath); err != nil {
 			return err
 		}
 
