@@ -568,10 +568,19 @@ func tickCmd(d time.Duration) tea.Cmd {
 	})
 }
 
-func buildAgentMap(agents []model.Agent) map[string]int {
-	m := make(map[string]int, len(agents))
+type agentInfo struct {
+	index int
+	name  string
+}
+
+func buildAgentMap(agents []model.Agent) map[string]agentInfo {
+	m := make(map[string]agentInfo, len(agents))
 	for i, a := range agents {
-		m[a.ID] = i
+		name := shortID(a.ID)
+		if a.Name != "" {
+			name = a.Name
+		}
+		m[a.ID] = agentInfo{index: i, name: name}
 	}
 	return m
 }
