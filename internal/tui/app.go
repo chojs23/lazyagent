@@ -522,11 +522,10 @@ func (m Model) loadDataCmd() tea.Cmd {
 				return dataMsg{err: err}
 			}
 
-			allEvents, err := q.ListEventsForSession(ctx, sessionID, model.EventFilter{Limit: 10000})
+			rawCount, err = q.CountEventsForSession(ctx, sessionID)
 			if err != nil {
 				return dataMsg{err: err}
 			}
-			rawCount = len(allEvents)
 
 			filter := model.EventFilter{
 				Type:   typeFilter,

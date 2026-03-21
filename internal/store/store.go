@@ -454,6 +454,12 @@ func (q *Queries) InsertEvent(ctx context.Context, event model.Event) (int64, er
 	return res.LastInsertId()
 }
 
+func (q *Queries) CountEventsForSession(ctx context.Context, sessionID string) (int, error) {
+	var count int
+	err := q.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM events WHERE session_id = ?", sessionID).Scan(&count)
+	return count, err
+}
+
 func (q *Queries) ListEventsForSession(ctx context.Context, sessionID string, f model.EventFilter) ([]model.Event, error) {
 	parts := []string{"SELECT id, agent_id, session_id, type, COALESCE(subtype,''), COALESCE(tool_name,''), COALESCE(tool_use_id,''), timestamp, created_at, payload FROM events WHERE session_id = ?"}
 	args := []any{sessionID}
