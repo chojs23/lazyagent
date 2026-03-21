@@ -1,28 +1,27 @@
 import type { Plugin } from "@opencode-ai/plugin";
-import { execFile } from "child_process";
+import { execFileSync } from "child_process";
 
 const LAZYAGENT_BIN = process.env.LAZYAGENT_BIN || "lazyagent";
 const PROJECT_SLUG = process.env.LAZYAGENT_PROJECT_SLUG || "";
 
 function ingest(payload: Record<string, unknown>): void {
-  const child = execFile(
-    LAZYAGENT_BIN,
-    [
-      "ingest",
-      "--runtime",
-      "opencode",
-      ...(PROJECT_SLUG ? ["--project-slug", PROJECT_SLUG] : []),
-    ],
-    { timeout: 5000 },
-    (err) => {
-      if (err) {
-        console.error("[lazyagent] ingest error:", err.message);
+  try {
+    execFileSync(
+      LAZYAGENT_BIN,
+      [
+        "ingest",
+        "--runtime",
+        "opencode",
+        ...(PROJECT_SLUG ? ["--project-slug", PROJECT_SLUG] : []),
+      ],
+      {
+        input: JSON.stringify(payload),
+        timeout: 5000,
+        stdio: ["pipe", "pipe", "pipe"],
       }
-    }
-  );
-  if (child.stdin) {
-    child.stdin.write(JSON.stringify(payload));
-    child.stdin.end();
+    );
+  } catch (err: any) {
+    console.error("[lazyagent] ingest error:", err.message);
   }
 }
 
@@ -65,7 +64,6 @@ export const LazyagentPlugin: Plugin = async ({ project }) => {
     event: async ({ event }: { event: { type: string; [key: string]: unknown } }) => {
       const type = event.type;
 
-      // only forward session lifecycle events
       if (
         !type.startsWith("session.") &&
         type !== "permission.asked"
@@ -73,7 +71,6 @@ export const LazyagentPlugin: Plugin = async ({ project }) => {
         return;
       }
 
-      // skip tool events (handled above)
       if (type === "tool.execute.before" || type === "tool.execute.after") {
         return;
       }
