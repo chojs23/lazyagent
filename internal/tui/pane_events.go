@@ -134,13 +134,26 @@ func (e *eventsModel) view(width, height int, focused bool, agentMap map[string]
 }
 
 func (e *eventsModel) renderEventLine(ev model.Event, index int, selected bool, agentMap map[string]int, maxW int, totalDigits int) string {
-	// line number (1-based)
 	numStr := fmt.Sprintf("%*d", totalDigits, index+1)
-
 	ts := formatTime(ev.Timestamp)
-	subtype := orDefault(ev.Subtype, ev.Type)
+	subtype := truncate(orDefault(ev.Subtype, ev.Type), 20)
+
+	if selected {
+		var plainParts []string
+		plainParts = append(plainParts, numStr)
+		plainParts = append(plainParts, ts)
+		plainParts = append(plainParts, subtype)
+		if ev.ToolName != "" {
+			plainParts = append(plainParts, ev.ToolName)
+		}
+		if _, ok := agentMap[ev.AgentID]; ok && len(agentMap) > 1 {
+			plainParts = append(plainParts, shortID(ev.AgentID))
+		}
+		return cursorStyle.Render("  " + strings.Join(plainParts, "  "))
+	}
+
 	stColor := subtypeColor(ev.Subtype)
-	subtypeStr := lipgloss.NewStyle().Foreground(stColor).Render(truncate(subtype, 20))
+	subtypeStr := lipgloss.NewStyle().Foreground(stColor).Render(subtype)
 
 	var parts []string
 	parts = append(parts, dimStyle.Render(numStr))
@@ -156,11 +169,5 @@ func (e *eventsModel) renderEventLine(ev model.Event, index int, selected bool, 
 		parts = append(parts, lipgloss.NewStyle().Foreground(c).Render(shortID(ev.AgentID)))
 	}
 
-	line := strings.Join(parts, "  ")
-	if selected {
-		line = lipgloss.NewStyle().Bold(true).Foreground(colorCyan).Render("> ") + line
-	} else {
-		line = "  " + line
-	}
-	return line
+	return "  " + strings.Join(parts, "  ")
 }

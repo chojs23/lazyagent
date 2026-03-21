@@ -23,7 +23,9 @@ var (
 
 	titleStyle     = lipgloss.NewStyle().Bold(true).Foreground(colorWhite)
 	subtitleStyle  = lipgloss.NewStyle().Foreground(colorGray)
-	selectedStyle  = lipgloss.NewStyle().Bold(true).Foreground(colorCyan)
+	selectedStyle       = lipgloss.NewStyle().Bold(true).Foreground(colorGreen)
+	cursorStyle         = lipgloss.NewStyle().Bold(true).Background(lipgloss.Color("25")).Foreground(colorWhite)
+	cursorSelectedStyle = lipgloss.NewStyle().Bold(true).Background(lipgloss.Color("25")).Foreground(colorGreen)
 	dimStyle       = lipgloss.NewStyle().Foreground(colorGray)
 	statusBarStyle = lipgloss.NewStyle().Foreground(colorDimWhite)
 
@@ -59,6 +61,15 @@ func statusIcon(status string) string {
 		return lipgloss.NewStyle().Foreground(colorGreen).Render("●")
 	default:
 		return lipgloss.NewStyle().Foreground(colorGray).Render("○")
+	}
+}
+
+func rawStatusIcon(status string) string {
+	switch status {
+	case "active":
+		return "●"
+	default:
+		return "○"
 	}
 }
 

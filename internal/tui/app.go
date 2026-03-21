@@ -17,10 +17,11 @@ import (
 type focusPane int
 
 const (
-	focusSidebar focusPane = iota
+	focusProjects focusPane = iota
+	focusAgents
 	focusEvents
 	focusDetail
-	paneCount = 3
+	paneCount = 4
 )
 
 type dataMsg struct {
@@ -40,10 +41,11 @@ type Model struct {
 	keys            keyMap
 	help            help.Model
 
-	sidebar sidebarModel
-	events  eventsModel
-	detail  detailModel
-	filter  filterModel
+	projects projectsModel
+	agents   agentsModel
+	events   eventsModel
+	detail   detailModel
+	filter   filterModel
 
 	focus     focusPane
 	status    string
@@ -67,11 +69,12 @@ func newModel(st *store.Store, refreshInterval time.Duration) Model {
 		refreshInterval: refreshInterval,
 		keys:            defaultKeyMap(),
 		help:            help.New(),
-		sidebar:         newSidebar(),
+		projects:        newProjects(),
+		agents:          newAgents(),
 		events:          newEvents(),
 		detail:          newDetail(),
 		filter:          newFilter(),
-		focus:           focusSidebar,
+		focus:           focusProjects,
 		status:          "Loading...",
 	}
 }
@@ -89,16 +92,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
-		// pre-calculate pane dimensions for use in Update()
-		sidebarW := maxInt(m.width/4, 24)
-		rightW := m.width - sidebarW
-		eventsH := maxInt((m.height-3)*55/100, 6)
-		detailH := maxInt(m.height-3-eventsH, 6)
-		sidebarH := m.height - 3
-		m.events.height = eventsH
-		m.sidebar.height = sidebarH
-		m.detail.viewport.SetWidth(maxInt(rightW-4, 10))
-		m.detail.viewport.SetHeight(maxInt(detailH-3, 4))
+		sz := m.calcSizes()
+		m.projects.height = sz.projH
+		m.agents.height = sz.agentH
+		m.events.height = sz.eventsH
+		m.detail.viewport.SetWidth(maxInt(sz.rightW-4, 10))
+		m.detail.viewport.SetHeight(maxInt(sz.detailH-3, 4))
 		return m, nil
 
 	case dataMsg:
@@ -138,13 +137,16 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case key.Matches(msg, m.keys.PrevPane):
 		m.focus = (m.focus + paneCount - 1) % paneCount
 		return m, nil
-	case key.Matches(msg, m.keys.Sidebar):
-		m.focus = focusSidebar
+	case key.Matches(msg, m.keys.PaneProjects):
+		m.focus = focusProjects
 		return m, nil
-	case key.Matches(msg, m.keys.Events):
+	case key.Matches(msg, m.keys.PaneAgents):
+		m.focus = focusAgents
+		return m, nil
+	case key.Matches(msg, m.keys.PaneEvents):
 		m.focus = focusEvents
 		return m, nil
-	case key.Matches(msg, m.keys.Detail):
+	case key.Matches(msg, m.keys.PaneDetail):
 		m.focus = focusDetail
 		return m, nil
 	case key.Matches(msg, m.keys.Search):
@@ -163,8 +165,8 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.status = "Refreshing..."
 		return m, m.loadDataCmd()
 	case key.Matches(msg, m.keys.AgentAll):
-		if m.focus == focusSidebar {
-			m.sidebar.selectedAgent = ""
+		if m.focus == focusAgents {
+			m.agents.selectedAgent = ""
 			m.filter.setAgentLabel("all")
 			m.status = "Agent filter: all"
 			return m, m.loadDataCmd()
@@ -177,13 +179,19 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	// pane-specific navigation
 	switch m.focus {
-	case focusSidebar:
-		return m.updateSidebar(msg)
+	case focusProjects:
+		return m.updateProjects(msg)
+	case focusAgents:
+		return m.updateAgents(msg)
 	case focusEvents:
 		return m.updateEvents(msg)
 	case focusDetail:
 		k := msg.String()
 		switch k {
+		case "J":
+			m.detail.toggleJSON()
+			m.lastKey = k
+			return m, nil
 		case "G":
 			m.detail.viewport.GotoBottom()
 			m.lastKey = k
@@ -198,7 +206,6 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		m.lastKey = k
-		// delegate to viewport's built-in key handling (ctrl+u/d, j/k, etc.)
 		var cmd tea.Cmd
 		m.detail.viewport, cmd = m.detail.viewport.Update(msg)
 		return m, cmd
@@ -207,47 +214,72 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-func (m Model) updateSidebar(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+func (m Model) updateProjects(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	k := msg.String()
 	switch k {
 	case "j", "down":
-		m.sidebar.moveDown()
+		m.projects.moveDown()
 	case "k", "up":
-		m.sidebar.moveUp()
+		m.projects.moveUp()
 	case "ctrl+d":
-		m.sidebar.halfPageDown(m.sidebar.height)
+		m.projects.halfPageDown(m.projects.height)
 	case "ctrl+u":
-		m.sidebar.halfPageUp(m.sidebar.height)
+		m.projects.halfPageUp(m.projects.height)
 	case "G":
-		m.sidebar.goBottom()
+		m.projects.goBottom()
 	case "g":
 		if m.lastKey == "g" {
-			m.sidebar.goTop()
+			m.projects.goTop()
 			m.lastKey = ""
 			return m, nil
 		}
 		m.lastKey = "g"
 		return m, nil
-	case "enter":
-		if m.sidebar.focusAgents {
-			m.sidebar.enter()
-			agentLabel := "all"
-			if id := m.sidebar.selectedAgentID(); id != "" {
-				agentLabel = shortID(id)
-				if a, _ := m.store.Read().GetAgentByID(context.Background(), id); a != nil && a.Name != "" {
-					agentLabel = a.Name
-				}
+	case "enter", "space":
+		if m.projects.enter() {
+			m.agents.selectedAgent = ""
+			m.agents.cursor = 0
+			m.lastKey = k
+			return m, m.loadDataCmd()
+		}
+	}
+	m.lastKey = k
+	return m, nil
+}
+
+func (m Model) updateAgents(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	k := msg.String()
+	switch k {
+	case "j", "down":
+		m.agents.moveDown()
+	case "k", "up":
+		m.agents.moveUp()
+	case "ctrl+d":
+		m.agents.halfPageDown(m.agents.height)
+	case "ctrl+u":
+		m.agents.halfPageUp(m.agents.height)
+	case "G":
+		m.agents.goBottom()
+	case "g":
+		if m.lastKey == "g" {
+			m.agents.goTop()
+			m.lastKey = ""
+			return m, nil
+		}
+		m.lastKey = "g"
+		return m, nil
+	case "enter", "space":
+		m.agents.enter()
+		agentLabel := "all"
+		if id := m.agents.selectedAgentID(); id != "" {
+			agentLabel = shortID(id)
+			if a, _ := m.store.Read().GetAgentByID(context.Background(), id); a != nil && a.Name != "" {
+				agentLabel = a.Name
 			}
-			m.filter.setAgentLabel(agentLabel)
-			m.lastKey = k
-			return m, m.loadDataCmd()
 		}
-		if m.sidebar.enter() {
-			m.lastKey = k
-			return m, m.loadDataCmd()
-		}
-	case "tab":
-		m.sidebar.toggleAgentFocus()
+		m.filter.setAgentLabel(agentLabel)
+		m.lastKey = k
+		return m, m.loadDataCmd()
 	}
 	m.lastKey = k
 	return m, nil
@@ -306,19 +338,20 @@ func (m Model) updateSearch(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 func (m *Model) syncDetailFromEvent() {
 	ev := m.events.selectedEvent()
-	m.detail.setEvent(ev, m.sidebar.agents)
+	m.detail.setEvent(ev, m.agents.agents)
 }
 
 func (m *Model) applyData(d dataMsg) {
 	m.allSessions = d.sessions
-	m.sidebar.setData(d.projects, d.sessions, d.agents)
+	m.projects.setData(d.projects, d.sessions)
+	m.agents.setAgents(d.agents)
 
 	// auto-expand first project and select first session if nothing selected
-	if m.sidebar.selectedSession == "" && len(d.sessions) > 0 {
-		m.sidebar.selectedSession = d.sessions[0].ID
+	if m.projects.selectedSession == "" && len(d.sessions) > 0 {
+		m.projects.selectedSession = d.sessions[0].ID
 		if len(d.projects) > 0 {
-			m.sidebar.expandedProjs[d.projects[0].ID] = true
-			m.sidebar.rebuildItems()
+			m.projects.expandedProjs[d.projects[0].ID] = true
+			m.projects.rebuildItems()
 		}
 	}
 
@@ -326,7 +359,7 @@ func (m *Model) applyData(d dataMsg) {
 	m.syncDetailFromEvent()
 
 	agentLabel := "all"
-	if id := m.sidebar.selectedAgentID(); id != "" {
+	if id := m.agents.selectedAgentID(); id != "" {
 		agentLabel = shortID(id)
 	}
 	m.filter.setAgentLabel(agentLabel)
@@ -336,10 +369,10 @@ func (m *Model) applyData(d dataMsg) {
 }
 
 func (m Model) handleDelete() (tea.Model, tea.Cmd) {
-	if m.focus != focusSidebar || m.sidebar.focusAgents {
+	if m.focus != focusProjects {
 		return m, nil
 	}
-	item := m.sidebar.currentItem()
+	item := m.projects.currentItem()
 	if item == nil {
 		return m, nil
 	}
@@ -349,20 +382,20 @@ func (m Model) handleDelete() (tea.Model, tea.Cmd) {
 		m.store.WithTx(ctx, func(q *store.Queries) error {
 			return q.DeleteSession(ctx, item.sessionID)
 		})
-		m.sidebar.selectedSession = ""
+		m.projects.selectedSession = ""
 		m.status = "Session deleted"
 	case "project":
 		m.store.WithTx(ctx, func(q *store.Queries) error {
 			return q.DeleteProject(ctx, item.projectID)
 		})
-		m.sidebar.selectedSession = ""
+		m.projects.selectedSession = ""
 		m.status = "Project deleted"
 	}
 	return m, m.loadDataCmd()
 }
 
 func (m Model) handleClearEvents() (tea.Model, tea.Cmd) {
-	sid := m.sidebar.currentSessionID()
+	sid := m.projects.currentSessionID()
 	if sid == "" {
 		return m, nil
 	}
@@ -374,6 +407,52 @@ func (m Model) handleClearEvents() (tea.Model, tea.Cmd) {
 	return m, m.loadDataCmd()
 }
 
+type paneSizes struct {
+	sidebarW int
+	rightW   int
+	projH    int
+	agentH   int
+	eventsH  int
+	detailH  int
+}
+
+func (m Model) calcSizes() paneSizes {
+	sidebarW := maxInt(m.width/4, 24)
+	rightW := m.width - sidebarW
+	leftH := m.height - 3
+	rightH := m.height - 3
+
+	// left: projects vs agents — 7:3 ratio based on focus
+	var projH, agentH int
+	switch m.focus {
+	case focusProjects:
+		projH = maxInt(leftH*70/100, 6)
+		agentH = maxInt(leftH-projH, 4)
+	case focusAgents:
+		agentH = maxInt(leftH*70/100, 6)
+		projH = maxInt(leftH-agentH, 4)
+	default:
+		projH = maxInt(leftH*55/100, 6)
+		agentH = maxInt(leftH-projH, 4)
+	}
+
+	// right: events vs detail — 7:3 ratio based on focus
+	var eventsH, detailH int
+	switch m.focus {
+	case focusEvents:
+		eventsH = maxInt(rightH*70/100, 6)
+		detailH = maxInt(rightH-eventsH, 4)
+	case focusDetail:
+		detailH = maxInt(rightH*70/100, 6)
+		eventsH = maxInt(rightH-detailH, 4)
+	default:
+		eventsH = maxInt(rightH*55/100, 6)
+		detailH = maxInt(rightH-eventsH, 4)
+	}
+
+	return paneSizes{sidebarW, rightW, projH, agentH, eventsH, detailH}
+}
+
 func (m Model) View() tea.View {
 	if m.width == 0 || m.height == 0 {
 		v := tea.NewView("Loading...")
@@ -381,20 +460,18 @@ func (m Model) View() tea.View {
 		return v
 	}
 
-	sidebarW := maxInt(m.width/4, 24)
-	rightW := m.width - sidebarW
-	eventsH := maxInt((m.height-3)*55/100, 6)
-	detailH := maxInt(m.height-3-eventsH, 6)
-	sidebarH := m.height - 3
+	sz := m.calcSizes()
 
-	sideView := m.sidebar.view(sidebarW, sidebarH, m.focus == focusSidebar)
+	projView := m.projects.view(sz.sidebarW, sz.projH, m.focus == focusProjects)
+	agentView := m.agents.view(sz.sidebarW, sz.agentH, m.focus == focusAgents)
 
-	agentMap := buildAgentMap(m.sidebar.agents)
-	eventsView := m.events.view(rightW, eventsH, m.focus == focusEvents, agentMap)
-	detailView := m.detail.view(rightW, detailH, m.focus == focusDetail)
+	agentMap := buildAgentMap(m.agents.agents)
+	eventsView := m.events.view(sz.rightW, sz.eventsH, m.focus == focusEvents, agentMap)
+	detailView := m.detail.view(sz.rightW, sz.detailH, m.focus == focusDetail)
 
+	left := lipgloss.JoinVertical(lipgloss.Left, projView, agentView)
 	right := lipgloss.JoinVertical(lipgloss.Left, eventsView, detailView)
-	main := lipgloss.JoinHorizontal(lipgloss.Top, sideView, right)
+	main := lipgloss.JoinHorizontal(lipgloss.Top, left, right)
 
 	filterBar := m.filter.view(m.width)
 	helpLine := m.help.View(m.keys)
@@ -409,8 +486,8 @@ func (m Model) View() tea.View {
 
 func (m Model) loadDataCmd() tea.Cmd {
 	st := m.store
-	sessionID := m.sidebar.currentSessionID()
-	agentID := m.sidebar.selectedAgentID()
+	sessionID := m.projects.currentSessionID()
+	agentID := m.agents.selectedAgentID()
 	typeFilter := m.filter.typeValue()
 	search := m.filter.searchQuery
 
@@ -438,7 +515,6 @@ func (m Model) loadDataCmd() tea.Cmd {
 				return dataMsg{err: err}
 			}
 
-			// get raw count (unfiltered)
 			allEvents, err := q.ListEventsForSession(ctx, sessionID, model.EventFilter{Limit: 10000})
 			if err != nil {
 				return dataMsg{err: err}

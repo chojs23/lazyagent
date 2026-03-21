@@ -1,0 +1,198 @@
+package tui
+
+import (
+	"fmt"
+	"strings"
+
+	"github.com/chojs23/lazyagent/internal/model"
+)
+
+type projectsModel struct {
+	projects        []model.Project
+	sessions        []model.Session
+	items           []sidebarItem
+	cursor          int
+	scroll          int
+	selectedSession string
+	expandedProjs   map[int64]bool
+	height          int
+}
+
+type sidebarItem struct {
+	kind      string // "project" or "session"
+	projectID int64
+	sessionID string
+	label     string
+}
+
+func newProjects() projectsModel {
+	return projectsModel{
+		expandedProjs: map[int64]bool{},
+	}
+}
+
+func (p *projectsModel) setData(projects []model.Project, sessions []model.Session) {
+	p.projects = projects
+	p.sessions = sessions
+	p.rebuildItems()
+}
+
+func (p *projectsModel) rebuildItems() {
+	p.items = nil
+	for _, proj := range p.projects {
+		p.items = append(p.items, sidebarItem{
+			kind:      "project",
+			projectID: proj.ID,
+			label:     fmt.Sprintf("%s (%d)", orDefault(proj.Name, proj.Slug), proj.SessionCount),
+		})
+		if p.expandedProjs[proj.ID] {
+			for _, sess := range p.sessions {
+				if sess.ProjectID == proj.ID {
+					slug := orDefault(sess.Slug, shortID(sess.ID))
+					p.items = append(p.items, sidebarItem{
+						kind:      "session",
+						projectID: proj.ID,
+						sessionID: sess.ID,
+						label:     fmt.Sprintf("%s  e:%d a:%d", slug, sess.EventCount, sess.AgentCount),
+					})
+				}
+			}
+		}
+	}
+	if p.cursor >= len(p.items) {
+		p.cursor = maxInt(len(p.items)-1, 0)
+	}
+}
+
+func (p *projectsModel) moveUp() {
+	if p.cursor > 0 {
+		p.cursor--
+	}
+}
+
+func (p *projectsModel) moveDown() {
+	if p.cursor < len(p.items)-1 {
+		p.cursor++
+	}
+}
+
+func (p *projectsModel) halfPageUp(viewH int) {
+	p.cursor = maxInt(p.cursor-viewH/2, 0)
+}
+
+func (p *projectsModel) halfPageDown(viewH int) {
+	p.cursor = minInt(p.cursor+viewH/2, maxInt(len(p.items)-1, 0))
+}
+
+func (p *projectsModel) goTop() {
+	p.cursor = 0
+}
+
+func (p *projectsModel) goBottom() {
+	if len(p.items) > 0 {
+		p.cursor = len(p.items) - 1
+	}
+}
+
+func (p *projectsModel) enter() (sessionChanged bool) {
+	if p.cursor >= len(p.items) {
+		return false
+	}
+	item := p.items[p.cursor]
+	switch item.kind {
+	case "project":
+		p.expandedProjs[item.projectID] = !p.expandedProjs[item.projectID]
+		p.rebuildItems()
+	case "session":
+		if p.selectedSession != item.sessionID {
+			p.selectedSession = item.sessionID
+			return true
+		}
+	}
+	return false
+}
+
+func (p *projectsModel) currentSessionID() string {
+	return p.selectedSession
+}
+
+func (p *projectsModel) currentItem() *sidebarItem {
+	if p.cursor < len(p.items) {
+		return &p.items[p.cursor]
+	}
+	return nil
+}
+
+func (p *projectsModel) sessionStatus(id string) string {
+	for _, sess := range p.sessions {
+		if sess.ID == id {
+			return sess.Status
+		}
+	}
+	return ""
+}
+
+func (p *projectsModel) view(width, height int, focused bool) string {
+	p.height = height
+
+	title := titleStyle.Render("Projects")
+
+	contentHeight := maxInt(height-3, 1)
+
+	var lines []string
+	for i, item := range p.items {
+		prefix := "  "
+		if i == p.cursor {
+			prefix = "> "
+		}
+		var line string
+		isSelected := item.kind == "session" && item.sessionID == p.selectedSession
+		switch {
+		case i == p.cursor:
+			style := cursorStyle
+			if isSelected {
+				style = cursorSelectedStyle
+			}
+			switch item.kind {
+			case "project":
+				arrow := "▶"
+				if p.expandedProjs[item.projectID] {
+					arrow = "▼"
+				}
+				line = style.Render("  " + arrow + " " + item.label)
+			case "session":
+				icon := rawStatusIcon(p.sessionStatus(item.sessionID))
+				line = style.Render("    " + icon + " " + item.label)
+			}
+		case isSelected:
+			icon := rawStatusIcon(p.sessionStatus(item.sessionID))
+			line = selectedStyle.Render(prefix + "  " + icon + " " + item.label)
+		default:
+			switch item.kind {
+			case "project":
+				arrow := "▶"
+				if p.expandedProjs[item.projectID] {
+					arrow = "▼"
+				}
+				line = prefix + arrow + " " + item.label
+			case "session":
+				icon := statusIcon(p.sessionStatus(item.sessionID))
+				line = prefix + "  " + icon + " " + item.label
+			}
+		}
+		lines = append(lines, line)
+	}
+
+	if p.cursor >= p.scroll+contentHeight {
+		p.scroll = p.cursor - contentHeight + 1
+	}
+	if p.cursor < p.scroll {
+		p.scroll = p.cursor
+	}
+	maxScroll := maxInt(len(lines)-contentHeight, 0)
+	p.scroll = minInt(p.scroll, maxScroll)
+
+	visible := sliceLines(lines, p.scroll, contentHeight)
+	content := title + "\n" + strings.Join(visible, "\n")
+	return paneStyle(focused).Width(width).Render(content)
+}
