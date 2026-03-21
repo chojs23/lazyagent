@@ -191,7 +191,7 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case focusDetail:
 		k := msg.String()
 		switch k {
-		case "h", "esc":
+		case "esc":
 			m.focus = focusEvents
 			m.lastKey = k
 			return m, nil
@@ -319,7 +319,7 @@ func (m Model) updateEvents(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		m.lastKey = "g"
 		return m, nil
-	case "enter", "l":
+	case "enter":
 		m.focus = focusDetail
 		m.lastKey = k
 		return m, nil
