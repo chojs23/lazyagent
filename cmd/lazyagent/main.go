@@ -151,21 +151,17 @@ func initClaude() error {
 	}
 
 	events := []string{"PreToolUse", "PostToolUse", "SessionStart", "SessionEnd", "Stop", "SubagentStop", "Notification", "UserPromptSubmit"}
-	added := 0
-	skipped := 0
 
 	for _, event := range events {
-		if hasLazyagentHook(hooks[event]) {
-			skipped++
-			continue
-		}
+		// remove existing lazyagent hooks, keep others
+		hooks[event] = removeLazyagentHooks(hooks[event])
+		// add current lazyagent hook
 		entry := map[string]any{
 			"matcher": "",
 			"hooks":   []any{map[string]any{"type": "command", "command": hookCmd}},
 		}
 		existing, _ := hooks[event].([]any)
 		hooks[event] = append(existing, entry)
-		added++
 	}
 
 	settings["hooks"] = hooks
@@ -178,11 +174,7 @@ func initClaude() error {
 		return err
 	}
 
-	if added > 0 {
-		fmt.Printf("Claude hooks configured in %s (%d added, %d skipped)\n", settingsPath, added, skipped)
-	} else {
-		fmt.Printf("All hooks already configured in %s (%d skipped)\n", settingsPath, skipped)
-	}
+	fmt.Printf("Claude hooks configured in %s (%d events)\n", settingsPath, len(events))
 	return nil
 }
 
@@ -197,10 +189,6 @@ func initOpenCode() error {
 	}
 
 	pluginPath := filepath.Join(dir, "lazyagent.ts")
-	if _, err := os.Stat(pluginPath); err == nil {
-		fmt.Printf("OpenCode plugin already exists at %s (skipped)\n", pluginPath)
-		return nil
-	}
 	if err := os.WriteFile(pluginPath, []byte(openCodePluginTS), 0o644); err != nil {
 		return err
 	}
@@ -209,23 +197,29 @@ func initOpenCode() error {
 	return nil
 }
 
-func hasLazyagentHook(eventEntry any) bool {
+func removeLazyagentHooks(eventEntry any) []any {
 	entries, ok := eventEntry.([]any)
 	if !ok {
-		return false
+		return nil
 	}
+	var kept []any
 	for _, e := range entries {
 		entry, _ := e.(map[string]any)
 		hooks, _ := entry["hooks"].([]any)
+		isLazyagent := false
 		for _, h := range hooks {
 			hook, _ := h.(map[string]any)
 			cmd, _ := hook["command"].(string)
 			if strings.Contains(cmd, "lazyagent") {
-				return true
+				isLazyagent = true
+				break
 			}
 		}
+		if !isLazyagent {
+			kept = append(kept, e)
+		}
 	}
-	return false
+	return kept
 }
 
 func printUsage() {
