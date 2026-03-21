@@ -76,6 +76,12 @@ func runIngest(st *store.Store, args []string) error {
 			return err
 		}
 		return writeJSON(map[string]any{"status": "ok", "meta": result})
+	case "opencode":
+		result, err := app.IngestOpenCodeEvent(context.Background(), st, payload, *slug)
+		if err != nil {
+			return err
+		}
+		return writeJSON(map[string]any{"status": "ok", "meta": result})
 	default:
 		return fmt.Errorf("unsupported runtime %q", *runtime)
 	}

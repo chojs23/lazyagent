@@ -10,6 +10,7 @@ import (
 
 	"github.com/chojs23/lazyagent/internal/claude"
 	"github.com/chojs23/lazyagent/internal/model"
+	"github.com/chojs23/lazyagent/internal/opencode"
 	"github.com/chojs23/lazyagent/internal/store"
 )
 
@@ -181,6 +182,93 @@ func IngestClaudeEvent(ctx context.Context, st *store.Store, payload map[string]
 	return result, err
 }
 
+func IngestOpenCodeEvent(ctx context.Context, st *store.Store, payload map[string]any, projectSlugOverride string) (IngestResult, error) {
+	parsed := opencode.ParseRawEvent(payload)
+	result := IngestResult{SessionID: parsed.SessionID}
+
+	err := st.WithTx(ctx, func(q *store.Queries) error {
+		existingSession, err := q.GetSessionByID(ctx, parsed.SessionID)
+		if err != nil {
+			return err
+		}
+
+		var projectID int64
+		if existingSession != nil {
+			projectID = existingSession.ProjectID
+		} else {
+			slug := projectSlugOverride
+			if slug == "" && parsed.ProjectName != "" {
+				slug = deriveSlug(parsed.ProjectName)
+			}
+			id, err := resolveProject(ctx, q, slug, parsed.TranscriptPath)
+			if err != nil {
+				return err
+			}
+			projectID = id
+		}
+
+		if err := q.UpsertSession(ctx, parsed.SessionID, projectID, "", "opencode", parsed.Metadata, parsed.Timestamp, parsed.TranscriptPath); err != nil {
+			return err
+		}
+
+		// root agent = session ID
+		rootAgentID := parsed.SessionID
+		if err := q.UpsertAgent(ctx, rootAgentID, parsed.SessionID, "", "", "", "", ""); err != nil {
+			return err
+		}
+
+		agentID := rootAgentID
+		// subagent (child session)
+		if parsed.SubAgentID != "" {
+			if err := q.UpsertAgent(ctx, parsed.SubAgentID, parsed.SessionID, rootAgentID, parsed.SubAgentName, parsed.SubAgentDescription, "", ""); err != nil {
+				return err
+			}
+			agentID = parsed.SubAgentID
+		} else if parsed.OwnerAgentID != "" && parsed.OwnerAgentID != rootAgentID {
+			agentID = parsed.OwnerAgentID
+			if err := q.UpsertAgent(ctx, agentID, parsed.SessionID, rootAgentID, "", "", "", ""); err != nil {
+				return err
+			}
+		}
+
+		// session lifecycle
+		if parsed.Subtype == "SessionEnd" {
+			if err := q.UpdateSessionStatus(ctx, parsed.SessionID, "stopped"); err != nil {
+				return err
+			}
+		} else if existingSession != nil && existingSession.Status == "stopped" {
+			if err := q.UpdateSessionStatus(ctx, parsed.SessionID, "active"); err != nil {
+				return err
+			}
+		}
+
+		raw, err := json.Marshal(parsed.Raw)
+		if err != nil {
+			return fmt.Errorf("encode payload: %w", err)
+		}
+
+		eventID, err := q.InsertEvent(ctx, model.Event{
+			AgentID:   agentID,
+			SessionID: parsed.SessionID,
+			Type:      parsed.Type,
+			Subtype:   parsed.Subtype,
+			ToolName:  parsed.ToolName,
+			ToolUseID: parsed.ToolUseID,
+			Timestamp: parsed.Timestamp,
+			Payload:   string(raw),
+		})
+		if err != nil {
+			return err
+		}
+
+		result.EventID = eventID
+		result.ProjectID = projectID
+		return nil
+	})
+
+	return result, err
+}
+
 func resolveProject(ctx context.Context, q *store.Queries, slugOverride, transcriptPath string) (int64, error) {
 	if slugOverride != "" {
 		proj, err := q.GetProjectBySlug(ctx, slugOverride)
@@ -247,6 +335,14 @@ func extractProjectDir(transcriptPath string) string {
 		return filepath.Dir(cleaned)
 	}
 	return cleaned
+}
+
+func deriveSlug(pathOrDir string) string {
+	candidates := deriveSlugCandidates(pathOrDir)
+	if len(candidates) > 0 {
+		return candidates[0]
+	}
+	return "unknown"
 }
 
 func deriveSlugCandidates(pathOrDir string) []string {
