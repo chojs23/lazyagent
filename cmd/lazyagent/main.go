@@ -9,6 +9,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/chojs23/lazyagent/internal/app"
 	"github.com/chojs23/lazyagent/internal/config"
@@ -144,22 +145,29 @@ func initClaude() error {
 		settings = map[string]any{}
 	}
 
-	hookEntry := func() []any {
-		return []any{map[string]any{
+	hooks, _ := settings["hooks"].(map[string]any)
+	if hooks == nil {
+		hooks = map[string]any{}
+	}
+
+	events := []string{"PreToolUse", "PostToolUse", "SessionStart", "SessionEnd", "Stop", "SubagentStop", "Notification", "UserPromptSubmit"}
+	added := 0
+	skipped := 0
+
+	for _, event := range events {
+		if hasLazyagentHook(hooks[event]) {
+			skipped++
+			continue
+		}
+		entry := map[string]any{
 			"matcher": "",
 			"hooks":   []any{map[string]any{"type": "command", "command": hookCmd}},
-		}}
+		}
+		existing, _ := hooks[event].([]any)
+		hooks[event] = append(existing, entry)
+		added++
 	}
-	hooks := map[string]any{
-		"PreToolUse":       hookEntry(),
-		"PostToolUse":      hookEntry(),
-		"SessionStart":     hookEntry(),
-		"SessionEnd":       hookEntry(),
-		"Stop":             hookEntry(),
-		"SubagentStop":     hookEntry(),
-		"Notification":     hookEntry(),
-		"UserPromptSubmit": hookEntry(),
-	}
+
 	settings["hooks"] = hooks
 
 	data, err := json.MarshalIndent(settings, "", "  ")
@@ -170,7 +178,11 @@ func initClaude() error {
 		return err
 	}
 
-	fmt.Printf("Claude hooks configured in %s\n", settingsPath)
+	if added > 0 {
+		fmt.Printf("Claude hooks configured in %s (%d added, %d skipped)\n", settingsPath, added, skipped)
+	} else {
+		fmt.Printf("All hooks already configured in %s (%d skipped)\n", settingsPath, skipped)
+	}
 	return nil
 }
 
@@ -191,6 +203,25 @@ func initOpenCode() error {
 
 	fmt.Printf("OpenCode plugin installed at %s\n", pluginPath)
 	return nil
+}
+
+func hasLazyagentHook(eventEntry any) bool {
+	entries, ok := eventEntry.([]any)
+	if !ok {
+		return false
+	}
+	for _, e := range entries {
+		entry, _ := e.(map[string]any)
+		hooks, _ := entry["hooks"].([]any)
+		for _, h := range hooks {
+			hook, _ := h.(map[string]any)
+			cmd, _ := hook["command"].(string)
+			if strings.Contains(cmd, "lazyagent") {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func printUsage() {
