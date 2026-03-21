@@ -49,11 +49,15 @@ func (p *projectsModel) rebuildItems() {
 			for _, sess := range p.sessions {
 				if sess.ProjectID == proj.ID {
 					slug := orDefault(sess.Slug, shortID(sess.ID))
+					rt := "C"
+					if sess.Runtime == "opencode" {
+						rt = "O"
+					}
 					p.items = append(p.items, sidebarItem{
 						kind:      "session",
 						projectID: proj.ID,
 						sessionID: sess.ID,
-						label:     fmt.Sprintf("%s  e:%d a:%d", slug, sess.EventCount, sess.AgentCount),
+						label:     fmt.Sprintf("[%s] %s  e:%d a:%d", rt, slug, sess.EventCount, sess.AgentCount),
 					})
 				}
 			}
