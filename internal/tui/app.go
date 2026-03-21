@@ -346,13 +346,11 @@ func (m *Model) applyData(d dataMsg) {
 	m.projects.setData(d.projects, d.sessions)
 	m.agents.setAgents(d.agents)
 
-	// auto-expand first project and select first session if nothing selected
+	// auto-expand project of the first session if nothing selected
 	if m.projects.selectedSession == "" && len(d.sessions) > 0 {
 		m.projects.selectedSession = d.sessions[0].ID
-		if len(d.projects) > 0 {
-			m.projects.expandedProjs[d.projects[0].ID] = true
-			m.projects.rebuildItems()
-		}
+		m.projects.expandedProjs[d.sessions[0].ProjectID] = true
+		m.projects.rebuildItems()
 	}
 
 	m.events.setEvents(d.events, d.rawCount)
@@ -379,15 +377,21 @@ func (m Model) handleDelete() (tea.Model, tea.Cmd) {
 	ctx := context.Background()
 	switch item.kind {
 	case "session":
-		m.store.WithTx(ctx, func(q *store.Queries) error {
+		if err := m.store.WithTx(ctx, func(q *store.Queries) error {
 			return q.DeleteSession(ctx, item.sessionID)
-		})
+		}); err != nil {
+			m.status = "Delete failed: " + err.Error()
+			return m, nil
+		}
 		m.projects.selectedSession = ""
 		m.status = "Session deleted"
 	case "project":
-		m.store.WithTx(ctx, func(q *store.Queries) error {
+		if err := m.store.WithTx(ctx, func(q *store.Queries) error {
 			return q.DeleteProject(ctx, item.projectID)
-		})
+		}); err != nil {
+			m.status = "Delete failed: " + err.Error()
+			return m, nil
+		}
 		m.projects.selectedSession = ""
 		m.status = "Project deleted"
 	}
@@ -400,9 +404,12 @@ func (m Model) handleClearEvents() (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	ctx := context.Background()
-	m.store.WithTx(ctx, func(q *store.Queries) error {
+	if err := m.store.WithTx(ctx, func(q *store.Queries) error {
 		return q.ClearSessionEvents(ctx, sid)
-	})
+	}); err != nil {
+		m.status = "Clear failed: " + err.Error()
+		return m, nil
+	}
 	m.status = "Events cleared"
 	return m, m.loadDataCmd()
 }
