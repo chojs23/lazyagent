@@ -124,7 +124,11 @@ func runInit(runtime string) error {
 }
 
 func initClaude() error {
-	dir := ".claude"
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return err
+	}
+	dir := filepath.Join(home, ".claude")
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return err
 	}
@@ -165,7 +169,11 @@ func initClaude() error {
 }
 
 func initOpenCode() error {
-	dir := filepath.Join(".opencode", "plugins")
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return err
+	}
+	dir := filepath.Join(home, ".config", "opencode", "plugins")
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return err
 	}
