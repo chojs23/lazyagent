@@ -128,7 +128,7 @@ func (d *detailModel) renderToolDetail(ev *model.Event) string {
 
 	// extract tool_input and tool_response from hook events
 	input := asMapSafe(payload["tool_input"])
-	response := getStr(payload, "tool_response")
+	response := prettyJSON(getStr(payload, "tool_response"))
 
 	// merge: prefer tool_input fields, fall back to top-level
 	get := func(key string) string {
@@ -342,4 +342,20 @@ func blockIfPresent(label, value string, fieldStyle, contentStyle lipgloss.Style
 		return ""
 	}
 	return fieldStyle.Render(label+":") + "\n" + contentStyle.Render(value)
+}
+
+func prettyJSON(s string) string {
+	s = strings.TrimSpace(s)
+	if s == "" || (s[0] != '{' && s[0] != '[') {
+		return s
+	}
+	var v any
+	if err := json.Unmarshal([]byte(s), &v); err != nil {
+		return s
+	}
+	b, err := json.MarshalIndent(v, "", "  ")
+	if err != nil {
+		return s
+	}
+	return string(b)
 }
