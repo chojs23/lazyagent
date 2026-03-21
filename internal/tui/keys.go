@@ -16,6 +16,7 @@ type keyMap struct {
 	AgentAll     key.Binding
 	Delete       key.Binding
 	ClearEvt     key.Binding
+	Help         key.Binding
 	Quit         key.Binding
 }
 
@@ -34,12 +35,13 @@ func defaultKeyMap() keyMap {
 		AgentAll:     key.NewBinding(key.WithKeys("a"), key.WithHelp("a", "all agents")),
 		Delete:       key.NewBinding(key.WithKeys("d"), key.WithHelp("d", "delete")),
 		ClearEvt:     key.NewBinding(key.WithKeys("D"), key.WithHelp("D", "clear events")),
+		Help:         key.NewBinding(key.WithKeys("?"), key.WithHelp("?", "help")),
 		Quit:         key.NewBinding(key.WithKeys("q", "ctrl+c"), key.WithHelp("q", "quit")),
 	}
 }
 
 func (k keyMap) ShortHelp() []key.Binding {
-	return []key.Binding{k.NextPane, k.Search, k.CycleType, k.ToggleAuto, k.Refresh, k.Quit}
+	return []key.Binding{k.NextPane, k.Search, k.CycleType, k.ToggleAuto, k.Refresh, k.Help, k.Quit}
 }
 
 func (k keyMap) FullHelp() [][]key.Binding {

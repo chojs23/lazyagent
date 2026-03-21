@@ -164,6 +164,9 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case key.Matches(msg, m.keys.Refresh):
 		m.status = "Refreshing..."
 		return m, m.loadDataCmd()
+	case key.Matches(msg, m.keys.Help):
+		m.help.ShowAll = !m.help.ShowAll
+		return m, nil
 	case key.Matches(msg, m.keys.AgentAll):
 		if m.focus == focusAgents {
 			m.agents.selectedAgent = ""
@@ -188,6 +191,10 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case focusDetail:
 		k := msg.String()
 		switch k {
+		case "h", "esc":
+			m.focus = focusEvents
+			m.lastKey = k
+			return m, nil
 		case "J":
 			m.detail.toggleJSON()
 			m.lastKey = k
@@ -311,6 +318,10 @@ func (m Model) updateEvents(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		m.lastKey = "g"
+		return m, nil
+	case "enter", "l":
+		m.focus = focusDetail
+		m.lastKey = k
 		return m, nil
 	}
 	m.lastKey = k
