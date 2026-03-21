@@ -22,11 +22,6 @@ func main() {
 }
 
 func run() error {
-	if len(os.Args) < 2 {
-		printUsage()
-		return nil
-	}
-
 	cfg, err := config.Load()
 	if err != nil {
 		return err
@@ -38,7 +33,12 @@ func run() error {
 	}
 	defer st.Close()
 
-	switch os.Args[1] {
+	cmd := "tui"
+	if len(os.Args) >= 2 {
+		cmd = os.Args[1]
+	}
+
+	switch cmd {
 	case "ingest":
 		return runIngest(st, os.Args[2:])
 	case "health":
