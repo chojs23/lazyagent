@@ -152,14 +152,15 @@ func (d *detailModel) renderToolDetail(ev *model.Event) string {
 		if value == "" {
 			return ""
 		}
-		maxLines := 30
+		maxLines := 20
 		lines := strings.Split(value, "\n")
+		totalLines := len(lines)
 		truncated := ""
-		if len(lines) > maxLines {
+		if totalLines > maxLines {
 			lines = lines[:maxLines]
-			truncated = dimStyle.Render(fmt.Sprintf("\n  ... (%d more lines)", len(strings.Split(value, "\n"))-maxLines))
+			truncated = dimStyle.Render(fmt.Sprintf("\n  ... (%d more lines, J for full)", totalLines-maxLines))
 		}
-		return fieldStyle.Render(label+":") + "\n" + contentStyle.Render(strings.Join(lines, "\n")) + truncated
+		return fieldStyle.Render(label+" ("+fmt.Sprintf("%d", totalLines)+" lines):") + "\n" + contentStyle.Render(strings.Join(lines, "\n")) + truncated
 	}
 
 	switch ev.ToolName {
