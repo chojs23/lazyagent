@@ -82,7 +82,7 @@ func (e *eventsModel) selectedEvent() *model.Event {
 	return nil
 }
 
-func (e *eventsModel) view(width, height int, focused bool, agentMap map[string]int) string {
+func (e *eventsModel) view(width, height int, focused bool, agentMap map[string]agentInfo) string {
 	e.height = height
 	e.width = width
 
@@ -126,10 +126,15 @@ func (e *eventsModel) view(width, height int, focused bool, agentMap map[string]
 	return paneStyle(focused).Width(width).Height(height).Render(content)
 }
 
-func (e *eventsModel) renderEventLine(ev model.Event, index int, selected bool, agentMap map[string]int, maxW int, totalDigits int) string {
+func (e *eventsModel) renderEventLine(ev model.Event, index int, selected bool, agentMap map[string]agentInfo, maxW int, totalDigits int) string {
 	numStr := fmt.Sprintf("%*d", totalDigits, index+1)
 	ts := formatTime(ev.Timestamp)
 	subtype := truncate(orDefault(ev.Subtype, ev.Type), 20)
+
+	agentLabel := ""
+	if info, ok := agentMap[ev.AgentID]; ok && len(agentMap) > 1 {
+		agentLabel = info.name
+	}
 
 	if selected {
 		var plainParts []string
@@ -139,8 +144,8 @@ func (e *eventsModel) renderEventLine(ev model.Event, index int, selected bool, 
 		if ev.ToolName != "" {
 			plainParts = append(plainParts, ev.ToolName)
 		}
-		if _, ok := agentMap[ev.AgentID]; ok && len(agentMap) > 1 {
-			plainParts = append(plainParts, shortID(ev.AgentID))
+		if agentLabel != "" {
+			plainParts = append(plainParts, agentLabel)
 		}
 		return cursorStyle.Render("  " + strings.Join(plainParts, "  "))
 	}
@@ -157,9 +162,10 @@ func (e *eventsModel) renderEventLine(ev model.Event, index int, selected bool, 
 		parts = append(parts, lipgloss.NewStyle().Foreground(colorBlue).Render(ev.ToolName))
 	}
 
-	if idx, ok := agentMap[ev.AgentID]; ok && len(agentMap) > 1 {
-		c := agentColor(idx)
-		parts = append(parts, lipgloss.NewStyle().Foreground(c).Render(shortID(ev.AgentID)))
+	if agentLabel != "" {
+		info := agentMap[ev.AgentID]
+		c := agentColor(info.index)
+		parts = append(parts, lipgloss.NewStyle().Foreground(c).Render(agentLabel))
 	}
 
 	return "  " + strings.Join(parts, "  ")
