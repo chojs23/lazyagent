@@ -124,6 +124,7 @@ func (d *detailModel) syncContent(preserveScroll bool) {
 	d.viewport.SetContent(content)
 	if !preserveScroll {
 		d.viewport.GotoTop()
+		d.viewport.SetXOffset(0)
 	}
 }
 
