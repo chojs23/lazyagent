@@ -46,25 +46,44 @@ func (p *projectsModel) rebuildItems() {
 			label:     fmt.Sprintf("%s (%d)", orDefault(proj.Name, proj.Slug), proj.SessionCount),
 		})
 		if p.expandedProjs[proj.ID] {
+			// collect root sessions (no parent) for this project
 			for _, sess := range p.sessions {
-				if sess.ProjectID == proj.ID {
-					slug := orDefault(sess.Slug, shortID(sess.ID))
-					rt := "C"
-					if sess.Runtime == "opencode" {
-						rt = "O"
-					}
-					p.items = append(p.items, sidebarItem{
-						kind:      "session",
-						projectID: proj.ID,
-						sessionID: sess.ID,
-						label:     fmt.Sprintf("[%s] %s  e:%d a:%d", rt, slug, sess.EventCount, sess.AgentCount),
-					})
+				if sess.ProjectID == proj.ID && sess.ParentSessionID == "" {
+					p.addSessionItem(proj.ID, sess, 0)
 				}
 			}
 		}
 	}
 	if p.cursor >= len(p.items) {
 		p.cursor = max(len(p.items)-1, 0)
+	}
+}
+
+func (p *projectsModel) addSessionItem(projectID int64, sess model.Session, depth int) {
+	slug := orDefault(sess.Slug, shortID(sess.ID))
+	rt := "C"
+	if sess.Runtime == "opencode" {
+		rt = "O"
+	}
+	indent := ""
+	for i := 0; i < depth; i++ {
+		indent += "  "
+	}
+	tree := ""
+	if depth > 0 {
+		tree = "└─ "
+	}
+	p.items = append(p.items, sidebarItem{
+		kind:      "session",
+		projectID: projectID,
+		sessionID: sess.ID,
+		label:     fmt.Sprintf("%s%s[%s] %s  e:%d a:%d", indent, tree, rt, slug, sess.EventCount, sess.AgentCount),
+	})
+	// add child sessions
+	for _, child := range p.sessions {
+		if child.ParentSessionID == sess.ID {
+			p.addSessionItem(projectID, child, depth+1)
+		}
 	}
 }
 

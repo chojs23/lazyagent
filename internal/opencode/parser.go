@@ -74,11 +74,9 @@ func ParseRawEvent(raw map[string]any) model.ParsedEvent {
 		p.ProjectName = dir
 	}
 
-	// subagent support: parent_session_id indicates a child session
+	// child session: keep as separate session, store parent reference
 	if parent := str(raw["parent_session_id"]); parent != "" {
-		p.SubAgentID = p.SessionID
-		p.SessionID = parent
-		p.OwnerAgentID = parent
+		p.Metadata["parent_session_id"] = parent
 	}
 
 	for _, k := range []string{"cwd", "project_dir"} {

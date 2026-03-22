@@ -37,13 +37,14 @@ type Project struct {
 }
 
 type Session struct {
-	ID             string
-	ProjectID      int64
-	ProjectSlug    string
-	ProjectName    string
-	Slug           string
-	Status         string
-	Runtime        string
+	ID              string
+	ParentSessionID string
+	ProjectID       int64
+	ProjectSlug     string
+	ProjectName     string
+	Slug            string
+	Status          string
+	Runtime         string
 	StartedAt      int64
 	StoppedAt      int64
 	TranscriptPath string
