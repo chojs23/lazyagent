@@ -27,10 +27,12 @@ type dbtx interface {
 }
 
 func Open(dbPath string) (*Store, error) {
-	db, err := sql.Open("sqlite", dbPath)
+	dsn := dbPath + "?_busy_timeout=5000&_txlock=immediate"
+	db, err := sql.Open("sqlite", dsn)
 	if err != nil {
 		return nil, fmt.Errorf("open sqlite: %w", err)
 	}
+	db.SetMaxOpenConns(1)
 	s := &Store{db: db}
 	if err := s.init(context.Background()); err != nil {
 		db.Close()
