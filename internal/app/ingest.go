@@ -361,9 +361,8 @@ func deriveSlugCandidates(pathOrDir string) []string {
 		return []string{parts[0]}
 	}
 
-	start := 2
 	var candidates []string
-	for size := start; size <= len(parts); size++ {
+	for size := 1; size <= len(parts); size++ {
 		candidates = append(candidates, strings.Join(parts[len(parts)-size:], "-"))
 	}
 	return candidates
