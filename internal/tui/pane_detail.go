@@ -13,11 +13,12 @@ import (
 )
 
 type detailModel struct {
-	viewport viewport.Model
-	event    *model.Event
-	eventID  int64
-	agents   map[string]*model.Agent
-	showJSON bool
+	viewport     viewport.Model
+	event        *model.Event
+	eventID      int64
+	agents       map[string]*model.Agent
+	showJSON     bool
+	expandContent bool
 }
 
 func newDetail() detailModel {
@@ -38,6 +39,7 @@ func (d *detailModel) setEvent(ev *model.Event, agents []model.Agent) {
 	}
 	if !sameEvent {
 		d.showJSON = false
+		d.expandContent = false
 		if ev != nil {
 			d.eventID = ev.ID
 		} else {
@@ -49,6 +51,11 @@ func (d *detailModel) setEvent(ev *model.Event, agents []model.Agent) {
 
 func (d *detailModel) toggleJSON() {
 	d.showJSON = !d.showJSON
+	d.syncContent(false)
+}
+
+func (d *detailModel) toggleExpand() {
+	d.expandContent = !d.expandContent
 	d.syncContent(false)
 }
 
@@ -148,19 +155,20 @@ func (d *detailModel) renderToolDetail(ev *model.Event) string {
 		return fieldStyle.Render(label+":") + " " + contentStyle.Render(value)
 	}
 
+	expand := d.expandContent
 	block := func(label, value string) string {
 		if value == "" {
 			return ""
 		}
-		maxLines := 20
 		lines := strings.Split(value, "\n")
 		totalLines := len(lines)
-		truncated := ""
-		if totalLines > maxLines {
-			lines = lines[:maxLines]
-			truncated = dimStyle.Render(fmt.Sprintf("\n  ... (%d more lines, J for full)", totalLines-maxLines))
+		if !expand && totalLines > 20 {
+			lines = lines[:20]
+			return fieldStyle.Render(label+fmt.Sprintf(" (%d lines):", totalLines)) + "\n" +
+				contentStyle.Render(strings.Join(lines, "\n")) + "\n" +
+				dimStyle.Render(fmt.Sprintf("  ... (%d more lines, e to expand)", totalLines-20))
 		}
-		return fieldStyle.Render(label+" ("+fmt.Sprintf("%d", totalLines)+" lines):") + "\n" + contentStyle.Render(strings.Join(lines, "\n")) + truncated
+		return fieldStyle.Render(label+":") + "\n" + contentStyle.Render(strings.Join(lines, "\n"))
 	}
 
 	switch ev.ToolName {

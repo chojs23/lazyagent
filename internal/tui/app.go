@@ -199,6 +199,10 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.detail.toggleJSON()
 			m.lastKey = k
 			return m, nil
+		case "e":
+			m.detail.toggleExpand()
+			m.lastKey = k
+			return m, nil
 		case "G":
 			m.detail.viewport.GotoBottom()
 			m.lastKey = k
