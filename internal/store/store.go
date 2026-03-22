@@ -268,6 +268,7 @@ func (q *Queries) UpsertSession(ctx context.Context, id string, projectID int64,
 		VALUES (?,?,?,'active',?,?,?,?,?,?)
 		ON CONFLICT(id) DO UPDATE SET
 			slug = COALESCE(excluded.slug, sessions.slug),
+			runtime = excluded.runtime,
 			transcript_path = COALESCE(excluded.transcript_path, sessions.transcript_path),
 			metadata = COALESCE(excluded.metadata, sessions.metadata),
 			updated_at = ?`,

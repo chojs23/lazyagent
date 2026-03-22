@@ -76,11 +76,11 @@ export const LazyagentPlugin: Plugin = async ({ project }) => {
       }
 
       ingest({
+        ...event,
         event: type,
         session_id: (event as any).sessionID || (event as any).session_id || "",
         project_dir: projectDir,
         timestamp: Date.now(),
-        ...event,
       });
     },
   };
