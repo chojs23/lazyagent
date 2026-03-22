@@ -25,6 +25,31 @@ function ingest(payload: Record<string, unknown>): void {
   }
 }
 
+function extractSessionID(event: Record<string, unknown>): string {
+  const props = (event.properties ?? {}) as Record<string, unknown>;
+  const type = event.type as string;
+
+  // session.created / session.deleted: properties.info.id
+  if (type === "session.created" || type === "session.deleted") {
+    const info = props.info as Record<string, unknown> | undefined;
+    return (info?.id as string) || "";
+  }
+
+  // session.idle: properties.sessionID
+  if (type === "session.idle") {
+    return (props.sessionID as string) || "";
+  }
+
+  // fallback: try common locations
+  return (
+    (props.sessionID as string) ||
+    (props.session_id as string) ||
+    (event.sessionID as string) ||
+    (event.session_id as string) ||
+    ""
+  );
+}
+
 export const LazyagentPlugin: Plugin = async ({ project }) => {
   const projectDir = project?.path || process.cwd();
 
@@ -61,8 +86,8 @@ export const LazyagentPlugin: Plugin = async ({ project }) => {
       });
     },
 
-    event: async ({ event }: { event: { type: string; [key: string]: unknown } }) => {
-      const type = event.type;
+    event: async ({ event }: { event: Record<string, unknown> }) => {
+      const type = event.type as string;
 
       if (
         !type.startsWith("session.") &&
@@ -75,10 +100,18 @@ export const LazyagentPlugin: Plugin = async ({ project }) => {
         return;
       }
 
+      const sessionID = extractSessionID(event);
+      if (!sessionID) {
+        return; // skip events without identifiable session
+      }
+
+      const props = (event.properties ?? {}) as Record<string, unknown>;
+      const info = (props.info ?? {}) as Record<string, unknown>;
+
       ingest({
-        ...event,
         event: type,
-        session_id: (event as any).sessionID || (event as any).session_id || "",
+        session_id: sessionID,
+        parent_session_id: (info.parentID as string) || "",
         project_dir: projectDir,
         timestamp: Date.now(),
       });
