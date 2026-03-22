@@ -41,7 +41,7 @@ func IngestClaudeEvent(ctx context.Context, st *store.Store, payload map[string]
 			projectID = id
 		}
 
-		if err := q.UpsertSession(ctx, parsed.SessionID, projectID, parsed.Slug, "claude", parsed.Metadata, parsed.Timestamp, parsed.TranscriptPath); err != nil {
+		if err := q.UpsertSession(ctx, parsed.SessionID, "", projectID, parsed.Slug, "claude", parsed.Metadata, parsed.Timestamp, parsed.TranscriptPath); err != nil {
 			return err
 		}
 
@@ -207,7 +207,8 @@ func IngestOpenCodeEvent(ctx context.Context, st *store.Store, payload map[strin
 			projectID = id
 		}
 
-		if err := q.UpsertSession(ctx, parsed.SessionID, projectID, "", "opencode", parsed.Metadata, parsed.Timestamp, parsed.TranscriptPath); err != nil {
+		parentSessionID, _ := parsed.Metadata["parent_session_id"].(string)
+		if err := q.UpsertSession(ctx, parsed.SessionID, parentSessionID, projectID, "", "opencode", parsed.Metadata, parsed.Timestamp, parsed.TranscriptPath); err != nil {
 			return err
 		}
 
