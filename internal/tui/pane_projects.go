@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/charmbracelet/x/ansi"
 	"github.com/chojs23/lazyagent/internal/model"
 )
 
@@ -161,6 +162,7 @@ func (p *projectsModel) view(width, height int, focused bool) string {
 	title := titleStyle.Render("Projects")
 
 	contentHeight := max(height-3, 1)
+	textWidth := max(width-4, 1) // border(2) + padding(2)
 
 	var lines []string
 	for i, item := range p.items {
@@ -203,7 +205,7 @@ func (p *projectsModel) view(width, height int, focused bool) string {
 				line = prefix + "  " + icon + " " + item.label
 			}
 		}
-		lines = append(lines, line)
+		lines = append(lines, ansi.Truncate(line, textWidth, ""))
 	}
 
 	if p.cursor >= p.scroll+contentHeight {

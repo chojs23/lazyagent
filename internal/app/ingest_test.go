@@ -152,6 +152,129 @@ func TestIngestSessionEnd(t *testing.T) {
 	}
 }
 
+func TestIngestOpenCodeSessionIdleMarksStopped(t *testing.T) {
+	st := testStore(t)
+	ctx := context.Background()
+
+	_, err := IngestOpenCodeEvent(ctx, st, map[string]any{
+		"event":       "session.created",
+		"session_id":  "opencode-1",
+		"project_dir": "/home/user/my-app",
+		"title":       "main",
+		"timestamp":   float64(1712700000000),
+	}, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	_, err = IngestOpenCodeEvent(ctx, st, map[string]any{
+		"event":       "session.idle",
+		"session_id":  "opencode-1",
+		"project_dir": "/home/user/my-app",
+		"timestamp":   float64(1712700010000),
+	}, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	session, err := st.Read().GetSessionByID(ctx, "opencode-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if session == nil {
+		t.Fatal("session not found")
+	}
+	if session.Status != "stopped" {
+		t.Fatalf("got status=%q, want stopped", session.Status)
+	}
+}
+
+func TestIngestOpenCodeSessionDeletedMarksStopped(t *testing.T) {
+	st := testStore(t)
+	ctx := context.Background()
+
+	_, err := IngestOpenCodeEvent(ctx, st, map[string]any{
+		"event":       "session.created",
+		"session_id":  "opencode-1",
+		"project_dir": "/home/user/my-app",
+		"title":       "main",
+		"timestamp":   float64(1712700000000),
+	}, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	_, err = IngestOpenCodeEvent(ctx, st, map[string]any{
+		"event":       "session.deleted",
+		"session_id":  "opencode-1",
+		"project_dir": "/home/user/my-app",
+		"timestamp":   float64(1712700010000),
+	}, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	session, err := st.Read().GetSessionByID(ctx, "opencode-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if session == nil {
+		t.Fatal("session not found")
+	}
+	if session.Status != "stopped" {
+		t.Fatalf("got status=%q, want stopped", session.Status)
+	}
+}
+
+func TestIngestOpenCodeEventReactivatesStoppedSession(t *testing.T) {
+	st := testStore(t)
+	ctx := context.Background()
+
+	_, err := IngestOpenCodeEvent(ctx, st, map[string]any{
+		"event":       "session.created",
+		"session_id":  "opencode-1",
+		"project_dir": "/home/user/my-app",
+		"title":       "main",
+		"timestamp":   float64(1712700000000),
+	}, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	_, err = IngestOpenCodeEvent(ctx, st, map[string]any{
+		"event":       "session.idle",
+		"session_id":  "opencode-1",
+		"project_dir": "/home/user/my-app",
+		"timestamp":   float64(1712700010000),
+	}, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	_, err = IngestOpenCodeEvent(ctx, st, map[string]any{
+		"event":       "tool.execute.before",
+		"session_id":  "opencode-1",
+		"project_dir": "/home/user/my-app",
+		"tool":        "Read",
+		"call_id":     "call-1",
+		"timestamp":   float64(1712700020000),
+	}, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	session, err := st.Read().GetSessionByID(ctx, "opencode-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if session == nil {
+		t.Fatal("session not found")
+	}
+	if session.Status != "active" {
+		t.Fatalf("got status=%q, want active", session.Status)
+	}
+}
+
 func TestIngestProjectSlugOverride(t *testing.T) {
 	st := testStore(t)
 	ctx := context.Background()

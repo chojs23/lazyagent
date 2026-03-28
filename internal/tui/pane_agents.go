@@ -3,6 +3,7 @@ package tui
 import (
 	"strings"
 
+	"github.com/charmbracelet/x/ansi"
 	"github.com/chojs23/lazyagent/internal/model"
 )
 
@@ -76,6 +77,7 @@ func (a *agentsModel) view(width, height int, focused bool) string {
 	title := titleStyle.Render("Agents")
 
 	contentHeight := max(height-3, 1)
+	textWidth := max(width-4, 1)
 
 	var lines []string
 	for i, ag := range a.agents {
@@ -108,7 +110,7 @@ func (a *agentsModel) view(width, height int, focused bool) string {
 		default:
 			line = prefix + tree + name
 		}
-		lines = append(lines, line)
+		lines = append(lines, ansi.Truncate(line, textWidth, ""))
 	}
 
 	if a.cursor >= a.scroll+contentHeight {
