@@ -208,13 +208,19 @@ func IngestOpenCodeEvent(ctx context.Context, st *store.Store, payload map[strin
 		}
 
 		parentSessionID, _ := parsed.Metadata["parent_session_id"].(string)
-		if err := q.UpsertSession(ctx, parsed.SessionID, parentSessionID, projectID, "", "opencode", parsed.Metadata, parsed.Timestamp, parsed.TranscriptPath); err != nil {
+		title := str(payload["title"])
+		slug := title
+		if err := q.UpsertSession(ctx, parsed.SessionID, parentSessionID, projectID, slug, "opencode", parsed.Metadata, parsed.Timestamp, parsed.TranscriptPath); err != nil {
 			return err
 		}
 
-		// root agent = session ID, name it "main" for OpenCode
+		// root agent = session ID, name from title or "main"
 		rootAgentID := parsed.SessionID
-		if err := q.UpsertAgent(ctx, rootAgentID, parsed.SessionID, "", "main", "", "", ""); err != nil {
+		agentName := "main"
+		if title != "" {
+			agentName = title
+		}
+		if err := q.UpsertAgent(ctx, rootAgentID, parsed.SessionID, "", agentName, "", "", ""); err != nil {
 			return err
 		}
 

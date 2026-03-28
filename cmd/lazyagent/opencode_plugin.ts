@@ -112,6 +112,7 @@ export const LazyagentPlugin: Plugin = async ({ project }) => {
         event: type,
         session_id: sessionID,
         parent_session_id: (info.parentID as string) || "",
+        title: (info.title as string) || "",
         project_dir: projectDir,
         timestamp: Date.now(),
       });
