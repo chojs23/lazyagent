@@ -99,7 +99,7 @@ func (a *agentsModel) view(width, height int, focused bool) string {
 		}
 		var line string
 		switch {
-		case i == a.cursor:
+		case i == a.cursor && focused:
 			style := cursorStyle
 			if ag.ID == a.selectedAgent {
 				style = cursorSelectedStyle

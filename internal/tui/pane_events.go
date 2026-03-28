@@ -118,7 +118,7 @@ func (e *eventsModel) view(width, height int, focused bool, agentMap map[string]
 	totalDigits := len(fmt.Sprintf("%d", len(e.events)))
 	for i := e.scroll; i < end; i++ {
 		ev := e.events[i]
-		line := e.renderEventLine(ev, i, i == e.cursor, agentMap, width-4, totalDigits)
+		line := e.renderEventLine(ev, i, i == e.cursor && focused, agentMap, width-4, totalDigits)
 		lines = append(lines, line)
 	}
 
