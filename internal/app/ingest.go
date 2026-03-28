@@ -238,8 +238,10 @@ func IngestOpenCodeEvent(ctx context.Context, st *store.Store, payload map[strin
 			}
 		}
 
-		// session lifecycle
-		if parsed.Subtype == "SessionEnd" {
+		// OpenCode treats `session.idle` as the normal end-of-run signal, while
+		// `session.deleted` is explicit removal. Mark both idle and delete style
+		// events as stopped so the sidebar reflects when a run is no longer active.
+		if parsed.Subtype == "SessionEnd" || parsed.Subtype == "Stop" {
 			if err := q.UpdateSessionStatus(ctx, parsed.SessionID, "stopped"); err != nil {
 				return err
 			}
@@ -369,8 +371,26 @@ func deriveSlugCandidates(pathOrDir string) []string {
 	}
 
 	var candidates []string
-	for size := 1; size <= len(parts); size++ {
-		candidates = append(candidates, strings.Join(parts[len(parts)-size:], "-"))
+	seen := make(map[string]struct{})
+	addCandidate := func(candidate string) {
+		if candidate == "" {
+			return
+		}
+		if _, ok := seen[candidate]; ok {
+			return
+		}
+		seen[candidate] = struct{}{}
+		candidates = append(candidates, candidate)
+	}
+
+	// Claude transcript directories encode the full project path into a single
+	// hyphen-separated segment. In practice the trailing repo slug is usually the
+	// last two tokens, so prefer that before falling back to shorter or broader
+	// suffixes during slug availability checks.
+	addCandidate(strings.Join(parts[max(0, len(parts)-2):], "-"))
+	addCandidate(parts[len(parts)-1])
+	for start := len(parts) - 3; start >= 0; start-- {
+		addCandidate(strings.Join(parts[start:], "-"))
 	}
 	return candidates
 }
