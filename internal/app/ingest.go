@@ -212,9 +212,9 @@ func IngestOpenCodeEvent(ctx context.Context, st *store.Store, payload map[strin
 			return err
 		}
 
-		// root agent = session ID
+		// root agent = session ID, name it "main" for OpenCode
 		rootAgentID := parsed.SessionID
-		if err := q.UpsertAgent(ctx, rootAgentID, parsed.SessionID, "", "", "", "", ""); err != nil {
+		if err := q.UpsertAgent(ctx, rootAgentID, parsed.SessionID, "", "main", "", "", ""); err != nil {
 			return err
 		}
 
