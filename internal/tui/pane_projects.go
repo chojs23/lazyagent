@@ -173,7 +173,7 @@ func (p *projectsModel) view(width, height int, focused bool) string {
 		var line string
 		isSelected := item.kind == "session" && item.sessionID == p.selectedSession
 		switch {
-		case i == p.cursor:
+		case i == p.cursor && focused:
 			style := cursorStyle
 			if isSelected {
 				style = cursorSelectedStyle
