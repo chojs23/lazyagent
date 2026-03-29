@@ -61,7 +61,9 @@ func (p *projectsModel) rebuildItems() {
 }
 
 func (p *projectsModel) addSessionItem(projectID int64, sess model.Session, depth int) {
+	// Slug doesn't look decent
 	slug := orDefault(sess.Slug, shortID(sess.ID))
+	_ = slug
 	rt := "C"
 	if sess.Runtime == "opencode" {
 		rt = "O"
@@ -78,7 +80,7 @@ func (p *projectsModel) addSessionItem(projectID int64, sess model.Session, dept
 		kind:      "session",
 		projectID: projectID,
 		sessionID: sess.ID,
-		label:     fmt.Sprintf("%s%s[%s] %s  e:%d a:%d", indent, tree, rt, slug, sess.EventCount, sess.AgentCount),
+		label:     fmt.Sprintf("%s%s[%s] %s  e:%d a:%d", indent, tree, rt, sess.ID, sess.EventCount, sess.AgentCount),
 	})
 	// add child sessions
 	for _, child := range p.sessions {
