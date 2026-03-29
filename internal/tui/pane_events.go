@@ -14,6 +14,7 @@ type eventsModel struct {
 	rawCount   int
 	cursor     int
 	scroll     int
+	hScroll    int
 	autoFollow bool
 	height     int
 	width      int
@@ -120,6 +121,12 @@ func (e *eventsModel) view(width, height int, focused bool, agentMap map[string]
 		ev := e.events[i]
 		line := e.renderEventLine(ev, i, i == e.cursor && focused, agentMap, width-4, totalDigits)
 		lines = append(lines, line)
+	}
+
+	textWidth := max(width-4, 1)
+	e.hScroll = clampHScroll(lines, e.hScroll, textWidth)
+	for i, l := range lines {
+		lines[i] = hScrollLine(l, e.hScroll, textWidth)
 	}
 
 	content := headerLine + "\n" + strings.Join(lines, "\n")
