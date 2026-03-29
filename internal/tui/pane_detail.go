@@ -172,6 +172,42 @@ func (d *detailModel) renderToolDetail(ev *model.Event) string {
 		return fieldStyle.Render(label+":") + "\n" + contentStyle.Render(strings.Join(lines, "\n"))
 	}
 
+	// non-tool events: render by subtype
+	switch ev.Subtype {
+	case "UserPromptSubmit":
+		return joinNonEmpty("\n",
+			field("Permission", get("permission_mode")),
+			block("Prompt", get("prompt")),
+		)
+	case "SessionStart":
+		return joinNonEmpty("\n",
+			field("Model", get("model")),
+			field("Source", get("source")),
+			field("CWD", get("cwd")),
+		)
+	case "SessionEnd":
+		return joinNonEmpty("\n",
+			field("Reason", get("reason")),
+		)
+	case "Stop":
+		return joinNonEmpty("\n",
+			field("Permission", get("permission_mode")),
+			block("Last Message", get("last_assistant_message")),
+		)
+	case "SubagentStop":
+		return joinNonEmpty("\n",
+			field("Agent Type", get("agent_type")),
+			field("Permission", get("permission_mode")),
+			block("Last Message", get("last_assistant_message")),
+		)
+	case "Notification":
+		return joinNonEmpty("\n",
+			field("Type", get("notification_type")),
+			field("Message", get("message")),
+		)
+	}
+
+	// tool events: render by tool name
 	switch ev.ToolName {
 	case "Bash":
 		return joinNonEmpty("\n",
