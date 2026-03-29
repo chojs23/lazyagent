@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/charmbracelet/x/ansi"
 	"github.com/chojs23/lazyagent/internal/model"
 )
 
@@ -14,6 +13,7 @@ type projectsModel struct {
 	items           []sidebarItem
 	cursor          int
 	scroll          int
+	hScroll         int
 	selectedSession string
 	expandedProjs   map[int64]bool
 	height          int
@@ -207,7 +207,12 @@ func (p *projectsModel) view(width, height int, focused bool) string {
 				line = prefix + "  " + icon + " " + item.label
 			}
 		}
-		lines = append(lines, ansi.Truncate(line, textWidth, ""))
+		lines = append(lines, line)
+	}
+
+	p.hScroll = clampHScroll(lines, p.hScroll, textWidth)
+	for i, l := range lines {
+		lines[i] = hScrollLine(l, p.hScroll, textWidth)
 	}
 
 	if p.cursor >= p.scroll+contentHeight {

@@ -246,6 +246,10 @@ func (m Model) updateProjects(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		m.lastKey = "g"
 		return m, nil
+	case "l", "right":
+		m.projects.hScroll += 4
+	case "h", "left":
+		m.projects.hScroll = max(m.projects.hScroll-4, 0)
 	case "enter", "space":
 		if m.projects.enter() {
 			m.agents.selectedAgent = ""
@@ -279,6 +283,10 @@ func (m Model) updateAgents(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		m.lastKey = "g"
 		return m, nil
+	case "l", "right":
+		m.agents.hScroll += 4
+	case "h", "left":
+		m.agents.hScroll = max(m.agents.hScroll-4, 0)
 	case "enter", "space":
 		m.agents.enter()
 		agentLabel := "all"
@@ -323,6 +331,10 @@ func (m Model) updateEvents(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		m.lastKey = "g"
 		return m, nil
+	case "l", "right":
+		m.events.hScroll += 4
+	case "h", "left":
+		m.events.hScroll = max(m.events.hScroll-4, 0)
 	case "enter":
 		m.focus = focusDetail
 		m.lastKey = k

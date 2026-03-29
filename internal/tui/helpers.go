@@ -3,6 +3,8 @@ package tui
 import (
 	"fmt"
 	"time"
+
+	"github.com/charmbracelet/x/ansi"
 )
 
 func formatTime(ts int64) string {
@@ -55,5 +57,27 @@ func truncate(s string, maxLen int) string {
 		return s[:maxLen]
 	}
 	return s[:maxLen-3] + "..."
+}
+
+// hScrollLine applies horizontal scroll offset and truncates to width.
+// ANSI escape codes are preserved correctly.
+func hScrollLine(line string, offset, width int) string {
+	w := ansi.StringWidth(line)
+	if offset >= w {
+		return ""
+	}
+	return ansi.Cut(line, offset, offset+width)
+}
+
+// clampHScroll limits horizontal scroll so it never scrolls past the content.
+func clampHScroll(lines []string, hScroll, textWidth int) int {
+	maxW := 0
+	for _, l := range lines {
+		if w := ansi.StringWidth(l); w > maxW {
+			maxW = w
+		}
+	}
+	maxHScroll := max(maxW-textWidth, 0)
+	return min(hScroll, maxHScroll)
 }
 
