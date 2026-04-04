@@ -7,7 +7,7 @@ func TestParseRawEvent_ChildSessionSubagentName(t *testing.T) {
 		"event":             "session.created",
 		"session_id":        "child-123",
 		"parent_session_id": "parent-456",
-		"title":             "Find active session source (@subagent)",
+		"title":             "Find active session source (@subagent-name subagent)",
 		"project_dir":       "/home/user/project",
 	}
 	p := ParseRawEvent(raw)
@@ -15,8 +15,8 @@ func TestParseRawEvent_ChildSessionSubagentName(t *testing.T) {
 	if p.SubAgentID != "child-123" {
 		t.Fatalf("SubAgentID = %q, want %q", p.SubAgentID, "child-123")
 	}
-	if p.SubAgentName != "subagent" {
-		t.Fatalf("SubAgentName = %q, want %q", p.SubAgentName, "subagent")
+	if p.SubAgentName != "subagent-name" {
+		t.Fatalf("SubAgentName = %q, want %q", p.SubAgentName, "subagent-name")
 	}
 	if p.SubAgentDescription != "Find active session source" {
 		t.Fatalf("SubAgentDescription = %q, want %q", p.SubAgentDescription, "Find active session source")
