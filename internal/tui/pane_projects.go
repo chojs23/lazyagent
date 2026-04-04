@@ -82,12 +82,6 @@ func (p *projectsModel) addSessionItem(projectID int64, sess model.Session, dept
 		sessionID: sess.ID,
 		label:     fmt.Sprintf("%s%s[%s] %s  e:%d a:%d", indent, tree, rt, sess.ID, sess.EventCount, sess.AgentCount),
 	})
-	// add child sessions
-	for _, child := range p.sessions {
-		if child.ParentSessionID == sess.ID {
-			p.addSessionItem(projectID, child, depth+1)
-		}
-	}
 }
 
 func (p *projectsModel) moveUp() {

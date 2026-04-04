@@ -1,10 +1,14 @@
 package opencode
 
 import (
+	"regexp"
+	"strings"
 	"time"
 
 	"github.com/chojs23/lazyagent/internal/model"
 )
+
+var subagentRe = regexp.MustCompile(`\(@([\w-]+)\s+subagent\)`)
 
 // ParseRawEvent converts an OpenCode plugin event payload into a normalized ParsedEvent.
 // Expected payload fields from the TypeScript plugin:
@@ -74,9 +78,18 @@ func ParseRawEvent(raw map[string]any) model.ParsedEvent {
 		p.ProjectName = dir
 	}
 
-	// child session: keep as separate session, store parent reference
+	// child session: extract subagent info from title
 	if parent := str(raw["parent_session_id"]); parent != "" {
 		p.Metadata["parent_session_id"] = parent
+		p.SubAgentID = p.SessionID
+		if title := str(raw["title"]); title != "" {
+			if m := subagentRe.FindStringSubmatch(title); m != nil {
+				p.SubAgentName = m[1]
+				p.SubAgentDescription = strings.TrimSpace(title[:strings.Index(title, m[0])])
+			} else {
+				p.SubAgentName = title
+			}
+		}
 	}
 
 	for _, k := range []string{"cwd", "project_dir"} {

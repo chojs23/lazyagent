@@ -74,7 +74,7 @@ func (a *agentsModel) selectedAgentID() string {
 func (a *agentsModel) view(width, height int, focused bool) string {
 	a.height = height
 
-	title := titleStyle.Render("Agents")
+	title := titleStyle.Render("Agents/Sessions")
 
 	contentHeight := max(height-3, 1)
 	textWidth := max(width-4, 1)
