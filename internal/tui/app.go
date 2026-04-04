@@ -544,12 +544,12 @@ func (m Model) loadDataCmd() tea.Cmd {
 		rawCount := 0
 
 		if sessionID != "" {
-			agents, err = q.ListAgentsForSession(ctx, sessionID)
+			agents, err = q.ListAgentsForSessionTree(ctx, sessionID)
 			if err != nil {
 				return dataMsg{err: err}
 			}
 
-			rawCount, err = q.CountEventsForSession(ctx, sessionID)
+			rawCount, err = q.CountEventsForSessionTree(ctx, sessionID)
 			if err != nil {
 				return dataMsg{err: err}
 			}
@@ -562,7 +562,7 @@ func (m Model) loadDataCmd() tea.Cmd {
 			if agentID != "" {
 				filter.AgentIDs = []string{agentID}
 			}
-			events, err = q.ListEventsForSession(ctx, sessionID, filter)
+			events, err = q.ListEventsForSessionTree(ctx, sessionID, filter)
 			if err != nil {
 				return dataMsg{err: err}
 			}

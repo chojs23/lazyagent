@@ -156,6 +156,7 @@ func (s *Store) init(ctx context.Context) error {
 		`CREATE INDEX IF NOT EXISTS idx_events_tool_use_id ON events(tool_use_id)`,
 		`CREATE INDEX IF NOT EXISTS idx_agents_session ON agents(session_id)`,
 		`CREATE INDEX IF NOT EXISTS idx_agents_parent ON agents(parent_agent_id)`,
+		`CREATE INDEX IF NOT EXISTS idx_sessions_parent ON sessions(parent_session_id)`,
 		`CREATE INDEX IF NOT EXISTS idx_pending_agent_queue_session ON pending_agent_queue(session_id, id)`,
 	}
 	for _, stmt := range ddl {
@@ -298,7 +299,7 @@ func (q *Queries) ListSessionsForProject(ctx context.Context, projectID int64) (
 			COALESCE(s.transcript_path,''), COALESCE(s.metadata,''),
 			s.event_count, s.agent_count, COALESCE(s.last_activity,0), s.created_at, s.updated_at
 		FROM sessions s LEFT JOIN projects p ON p.id = s.project_id
-		WHERE s.project_id = ?
+		WHERE s.project_id = ? AND (s.parent_session_id IS NULL OR s.parent_session_id = '')
 		ORDER BY COALESCE(s.last_activity, s.started_at) DESC`, projectID)
 	if err != nil {
 		return nil, err
@@ -314,6 +315,7 @@ func (q *Queries) ListRecentSessions(ctx context.Context, limit int) ([]model.Se
 			COALESCE(s.transcript_path,''), COALESCE(s.metadata,''),
 			s.event_count, s.agent_count, COALESCE(s.last_activity,0), s.created_at, s.updated_at
 		FROM sessions s JOIN projects p ON p.id = s.project_id
+		WHERE (s.parent_session_id IS NULL OR s.parent_session_id = '')
 		ORDER BY COALESCE(s.last_activity, s.started_at) DESC
 		LIMIT ?`, limit)
 	if err != nil {
@@ -438,6 +440,88 @@ func (q *Queries) ListAgentsForSession(ctx context.Context, sessionID string) ([
 		out = append(out, a)
 	}
 	return out, rows.Err()
+}
+
+// ListAgentsForSessionTree returns agents from the session and all its child
+// sessions. Child-session agents get their parent_agent_id overridden to the
+// parent session's root agent so they render as subagents in the tree view.
+func (q *Queries) ListAgentsForSessionTree(ctx context.Context, sessionID string) ([]model.Agent, error) {
+	rows, err := q.db.QueryContext(ctx, `
+		SELECT id, session_id,
+			CASE WHEN session_id != ?1 THEN ?1 ELSE COALESCE(parent_agent_id,'') END,
+			COALESCE(name,''), COALESCE(description,''),
+			COALESCE(agent_type,''), COALESCE(agent_class,''), COALESCE(transcript_path,''), COALESCE(metadata,''),
+			created_at, updated_at
+		FROM agents
+		WHERE session_id = ?1
+		   OR session_id IN (SELECT id FROM sessions WHERE parent_session_id = ?1)
+		ORDER BY created_at ASC`, sessionID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []model.Agent
+	for rows.Next() {
+		var a model.Agent
+		if err := rows.Scan(&a.ID, &a.SessionID, &a.ParentAgentID, &a.Name, &a.Description,
+			&a.AgentType, &a.AgentClass, &a.TranscriptPath, &a.Metadata, &a.CreatedAt, &a.UpdatedAt); err != nil {
+			return nil, err
+		}
+		out = append(out, a)
+	}
+	return out, rows.Err()
+}
+
+func (q *Queries) CountEventsForSessionTree(ctx context.Context, sessionID string) (int, error) {
+	var count int
+	err := q.db.QueryRowContext(ctx, `
+		SELECT COUNT(*) FROM events
+		WHERE session_id = ?1
+		   OR session_id IN (SELECT id FROM sessions WHERE parent_session_id = ?1)`, sessionID).Scan(&count)
+	return count, err
+}
+
+func (q *Queries) ListEventsForSessionTree(ctx context.Context, sessionID string, f model.EventFilter) ([]model.Event, error) {
+	sessionFilter := "(session_id = ?1 OR session_id IN (SELECT id FROM sessions WHERE parent_session_id = ?1))"
+	parts := []string{"SELECT id, agent_id, session_id, type, COALESCE(subtype,''), COALESCE(tool_name,''), COALESCE(tool_use_id,''), timestamp, created_at, payload FROM events WHERE " + sessionFilter}
+	args := []any{sessionID}
+
+	if len(f.AgentIDs) > 0 {
+		placeholders := make([]string, len(f.AgentIDs))
+		for i, id := range f.AgentIDs {
+			placeholders[i] = "?"
+			args = append(args, id)
+		}
+		parts = append(parts, fmt.Sprintf("AND agent_id IN (%s)", strings.Join(placeholders, ",")))
+	}
+	if f.Type != "" {
+		parts = append(parts, "AND type = ?")
+		args = append(args, f.Type)
+	}
+	if f.Subtype != "" {
+		parts = append(parts, "AND subtype = ?")
+		args = append(args, f.Subtype)
+	}
+	if f.Search != "" {
+		parts = append(parts, "AND payload LIKE ?")
+		args = append(args, "%"+f.Search+"%")
+	}
+	parts = append(parts, "ORDER BY timestamp ASC")
+	if f.Limit > 0 {
+		parts = append(parts, "LIMIT ?")
+		args = append(args, f.Limit)
+		if f.Offset > 0 {
+			parts = append(parts, "OFFSET ?")
+			args = append(args, f.Offset)
+		}
+	}
+
+	rows, err := q.db.QueryContext(ctx, strings.Join(parts, " "), args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	return scanEvents(rows)
 }
 
 func (q *Queries) UpdateAgentType(ctx context.Context, id, agentType string) error {

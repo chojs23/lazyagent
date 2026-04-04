@@ -215,23 +215,26 @@ func IngestOpenCodeEvent(ctx context.Context, st *store.Store, payload map[strin
 		}
 
 		// root agent = session ID, name from title or "main"
+		// For child sessions (SubAgentName set), use the extracted subagent
+		// name so events carry a clean agent label in the parent's view.
+		// Pass empty when we have no new info so nullIfEmpty + COALESCE in
+		// UpsertAgent preserves any previously stored name. Default "main"
+		// only applies to root sessions (no parent).
 		rootAgentID := parsed.SessionID
-		agentName := "main"
-		if title != "" {
+		agentName := ""
+		if parsed.SubAgentName != "" {
+			agentName = parsed.SubAgentName
+		} else if title != "" {
 			agentName = title
+		} else if parentSessionID == "" {
+			agentName = "main"
 		}
-		if err := q.UpsertAgent(ctx, rootAgentID, parsed.SessionID, "", agentName, "", "", ""); err != nil {
+		if err := q.UpsertAgent(ctx, rootAgentID, parsed.SessionID, "", agentName, parsed.SubAgentDescription, "", ""); err != nil {
 			return err
 		}
 
 		agentID := rootAgentID
-		// subagent (child session)
-		if parsed.SubAgentID != "" {
-			if err := q.UpsertAgent(ctx, parsed.SubAgentID, parsed.SessionID, rootAgentID, parsed.SubAgentName, parsed.SubAgentDescription, "", ""); err != nil {
-				return err
-			}
-			agentID = parsed.SubAgentID
-		} else if parsed.OwnerAgentID != "" && parsed.OwnerAgentID != rootAgentID {
+		if parsed.OwnerAgentID != "" && parsed.OwnerAgentID != rootAgentID {
 			agentID = parsed.OwnerAgentID
 			if err := q.UpsertAgent(ctx, agentID, parsed.SessionID, rootAgentID, "", "", "", ""); err != nil {
 				return err
