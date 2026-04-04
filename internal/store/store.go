@@ -442,20 +442,28 @@ func (q *Queries) ListAgentsForSession(ctx context.Context, sessionID string) ([
 	return out, rows.Err()
 }
 
-// ListAgentsForSessionTree returns agents from the session and all its child
-// sessions. Child-session agents get their parent_agent_id overridden to the
-// parent session's root agent so they render as subagents in the tree view.
+// ListAgentsForSessionTree returns agents from the session and all its
+// descendant sessions (recursive). Child-session agents get their
+// parent_agent_id set to their parent session's ID so they render as a
+// proper tree in the agents pane.
 func (q *Queries) ListAgentsForSessionTree(ctx context.Context, sessionID string) ([]model.Agent, error) {
 	rows, err := q.db.QueryContext(ctx, `
-		SELECT id, session_id,
-			CASE WHEN session_id != ?1 THEN ?1 ELSE COALESCE(parent_agent_id,'') END,
-			COALESCE(name,''), COALESCE(description,''),
-			COALESCE(agent_type,''), COALESCE(agent_class,''), COALESCE(transcript_path,''), COALESCE(metadata,''),
-			created_at, updated_at
-		FROM agents
-		WHERE session_id = ?1
-		   OR session_id IN (SELECT id FROM sessions WHERE parent_session_id = ?1)
-		ORDER BY created_at ASC`, sessionID)
+		WITH RECURSIVE session_tree(id, parent) AS (
+			SELECT ?1, ''
+			UNION ALL
+			SELECT s.id, s.parent_session_id FROM sessions s
+			JOIN session_tree st ON s.parent_session_id = st.id
+		)
+		SELECT a.id, a.session_id,
+			CASE WHEN a.session_id != ?1 THEN COALESCE(
+				(SELECT parent FROM session_tree WHERE id = a.session_id), ?1
+			) ELSE COALESCE(a.parent_agent_id,'') END,
+			COALESCE(a.name,''), COALESCE(a.description,''),
+			COALESCE(a.agent_type,''), COALESCE(a.agent_class,''), COALESCE(a.transcript_path,''), COALESCE(a.metadata,''),
+			a.created_at, a.updated_at
+		FROM agents a
+		WHERE a.session_id IN (SELECT id FROM session_tree)
+		ORDER BY a.created_at ASC`, sessionID)
 	if err != nil {
 		return nil, err
 	}
@@ -475,15 +483,25 @@ func (q *Queries) ListAgentsForSessionTree(ctx context.Context, sessionID string
 func (q *Queries) CountEventsForSessionTree(ctx context.Context, sessionID string) (int, error) {
 	var count int
 	err := q.db.QueryRowContext(ctx, `
+		WITH RECURSIVE session_tree(id) AS (
+			SELECT ?1
+			UNION ALL
+			SELECT s.id FROM sessions s
+			JOIN session_tree st ON s.parent_session_id = st.id
+		)
 		SELECT COUNT(*) FROM events
-		WHERE session_id = ?1
-		   OR session_id IN (SELECT id FROM sessions WHERE parent_session_id = ?1)`, sessionID).Scan(&count)
+		WHERE session_id IN (SELECT id FROM session_tree)`, sessionID).Scan(&count)
 	return count, err
 }
 
 func (q *Queries) ListEventsForSessionTree(ctx context.Context, sessionID string, f model.EventFilter) ([]model.Event, error) {
-	sessionFilter := "(session_id = ?1 OR session_id IN (SELECT id FROM sessions WHERE parent_session_id = ?1))"
-	parts := []string{"SELECT id, agent_id, session_id, type, COALESCE(subtype,''), COALESCE(tool_name,''), COALESCE(tool_use_id,''), timestamp, created_at, payload FROM events WHERE " + sessionFilter}
+	cte := `WITH RECURSIVE session_tree(id) AS (
+		SELECT ?1
+		UNION ALL
+		SELECT s.id FROM sessions s
+		JOIN session_tree st ON s.parent_session_id = st.id
+	) `
+	parts := []string{cte + "SELECT id, agent_id, session_id, type, COALESCE(subtype,''), COALESCE(tool_name,''), COALESCE(tool_use_id,''), timestamp, created_at, payload FROM events WHERE session_id IN (SELECT id FROM session_tree)"}
 	args := []any{sessionID}
 
 	if len(f.AgentIDs) > 0 {

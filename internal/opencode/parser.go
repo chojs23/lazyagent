@@ -8,7 +8,7 @@ import (
 	"github.com/chojs23/lazyagent/internal/model"
 )
 
-var subagentRe = regexp.MustCompile(`\(@([\w-]+)\s+subagent\)`)
+var subagentRe = regexp.MustCompile(`\(@([\w-]+)(?:\s+subagent)?\)`)
 
 // ParseRawEvent converts an OpenCode plugin event payload into a normalized ParsedEvent.
 // Expected payload fields from the TypeScript plugin:
