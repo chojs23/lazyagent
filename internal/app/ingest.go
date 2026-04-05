@@ -34,7 +34,8 @@ func IngestClaudeEvent(ctx context.Context, st *store.Store, payload map[string]
 		if existingSession != nil {
 			projectID = existingSession.ProjectID
 		} else {
-			id, err := resolveProject(ctx, q, projectSlugOverride, parsed.TranscriptPath)
+			cwd := str(payload["cwd"])
+			id, err := resolveProject(ctx, q, projectSlugOverride, parsed.TranscriptPath, cwd)
 			if err != nil {
 				return err
 			}
@@ -200,7 +201,11 @@ func IngestOpenCodeEvent(ctx context.Context, st *store.Store, payload map[strin
 			if slug == "" && parsed.ProjectName != "" {
 				slug = deriveSlug(parsed.ProjectName)
 			}
-			id, err := resolveProject(ctx, q, slug, parsed.TranscriptPath)
+			cwd := str(payload["cwd"])
+			if cwd == "" {
+				cwd = str(payload["project_dir"])
+			}
+			id, err := resolveProject(ctx, q, slug, parsed.TranscriptPath, cwd)
 			if err != nil {
 				return err
 			}
@@ -303,29 +308,49 @@ func isOpenCodeResumeSignal(parsed model.ParsedEvent) bool {
 	}
 }
 
-func resolveProject(ctx context.Context, q *store.Queries, slugOverride, transcriptPath string) (int64, error) {
-	if slugOverride != "" {
-		proj, err := q.GetProjectBySlug(ctx, slugOverride)
+func resolveProject(ctx context.Context, q *store.Queries, slugOverride, transcriptPath, cwd string) (int64, error) {
+	// Try matching by working directory first. This is the most reliable
+	// cross-runtime match: both Claude and OpenCode provide the actual
+	// project directory (cwd / project_dir), while their transcript paths
+	// use completely different formats.
+	if cwd != "" {
+		proj, err := q.GetProjectByDirectory(ctx, cwd)
 		if err != nil {
 			return 0, err
 		}
 		if proj != nil {
 			return proj.ID, nil
 		}
-		dir := ""
-		if transcriptPath != "" {
-			dir = extractProjectDir(transcriptPath)
-		}
-		return q.CreateProject(ctx, slugOverride, slugOverride, dir)
 	}
 
-	if transcriptPath != "" {
-		dir := extractProjectDir(transcriptPath)
-		proj, err := q.GetProjectByTranscriptPath(ctx, dir)
+	if slugOverride != "" {
+		proj, err := q.GetProjectBySlug(ctx, slugOverride)
 		if err != nil {
 			return 0, err
 		}
 		if proj != nil {
+			if cwd != "" && proj.Directory == "" {
+				q.UpdateProjectDirectory(ctx, proj.ID, cwd)
+			}
+			return proj.ID, nil
+		}
+		transcriptDir := ""
+		if transcriptPath != "" {
+			transcriptDir = extractProjectDir(transcriptPath)
+		}
+		return q.CreateProject(ctx, slugOverride, slugOverride, cwd, transcriptDir)
+	}
+
+	if transcriptPath != "" {
+		transcriptDir := extractProjectDir(transcriptPath)
+		proj, err := q.GetProjectByTranscriptPath(ctx, transcriptDir)
+		if err != nil {
+			return 0, err
+		}
+		if proj != nil {
+			if cwd != "" && proj.Directory == "" {
+				q.UpdateProjectDirectory(ctx, proj.ID, cwd)
+			}
 			return proj.ID, nil
 		}
 
@@ -336,7 +361,7 @@ func resolveProject(ctx context.Context, q *store.Queries, slugOverride, transcr
 				return 0, err
 			}
 			if avail {
-				return q.CreateProject(ctx, c, c, dir)
+				return q.CreateProject(ctx, c, c, cwd, transcriptDir)
 			}
 		}
 
@@ -348,7 +373,7 @@ func resolveProject(ctx context.Context, q *store.Queries, slugOverride, transcr
 				return 0, err
 			}
 			if avail {
-				return q.CreateProject(ctx, c, c, dir)
+				return q.CreateProject(ctx, c, c, cwd, transcriptDir)
 			}
 		}
 	}
@@ -360,7 +385,7 @@ func resolveProject(ctx context.Context, q *store.Queries, slugOverride, transcr
 	if proj != nil {
 		return proj.ID, nil
 	}
-	return q.CreateProject(ctx, "unknown", "unknown", "")
+	return q.CreateProject(ctx, "unknown", "unknown", "", "")
 }
 
 func extractProjectDir(transcriptPath string) string {

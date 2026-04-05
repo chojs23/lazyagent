@@ -29,6 +29,7 @@ type Project struct {
 	ID             int64
 	Slug           string
 	Name           string
+	Directory      string
 	TranscriptPath string
 	Metadata       string
 	SessionCount   int64
