@@ -189,6 +189,136 @@ func TestIngestOpenCodeSessionIdleMarksStopped(t *testing.T) {
 	}
 }
 
+func TestIngestOpenCodeIdleDeferredWhileChildrenActive(t *testing.T) {
+	st := testStore(t)
+	ctx := context.Background()
+
+	// 1. Create parent session
+	_, err := IngestOpenCodeEvent(ctx, st, map[string]any{
+		"event":       "session.created",
+		"session_id":  "parent-1",
+		"project_dir": "/home/user/my-app",
+		"title":       "main",
+		"timestamp":   float64(1712700000000),
+	}, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// 2. Create child session
+	_, err = IngestOpenCodeEvent(ctx, st, map[string]any{
+		"event":             "session.created",
+		"session_id":        "child-1",
+		"parent_session_id": "parent-1",
+		"project_dir":       "/home/user/my-app",
+		"title":             "Map modules (@mapper subagent)",
+		"timestamp":         float64(1712700001000),
+	}, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// 3. Parent goes idle while child is still running
+	_, err = IngestOpenCodeEvent(ctx, st, map[string]any{
+		"event":       "session.idle",
+		"session_id":  "parent-1",
+		"project_dir": "/home/user/my-app",
+		"timestamp":   float64(1712700002000),
+	}, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Parent must stay active because child is still running
+	session, err := st.Read().GetSessionByID(ctx, "parent-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if session.Status != "active" {
+		t.Fatalf("parent status=%q, want active (child still running)", session.Status)
+	}
+
+	// 4. Child goes idle
+	_, err = IngestOpenCodeEvent(ctx, st, map[string]any{
+		"event":             "session.idle",
+		"session_id":        "child-1",
+		"parent_session_id": "parent-1",
+		"project_dir":       "/home/user/my-app",
+		"timestamp":         float64(1712700003000),
+	}, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Child should be stopped
+	child, err := st.Read().GetSessionByID(ctx, "child-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if child.Status != "stopped" {
+		t.Fatalf("child status=%q, want stopped", child.Status)
+	}
+
+	// Parent should now be stopped via cascade
+	session, err = st.Read().GetSessionByID(ctx, "parent-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if session.Status != "stopped" {
+		t.Fatalf("parent status=%q, want stopped (all children done, parent already idle)", session.Status)
+	}
+}
+
+func TestIngestOpenCodeIdleDeferredMultipleChildren(t *testing.T) {
+	st := testStore(t)
+	ctx := context.Background()
+
+	// Parent + two children
+	IngestOpenCodeEvent(ctx, st, map[string]any{
+		"event": "session.created", "session_id": "parent-1",
+		"project_dir": "/home/user/my-app", "title": "main",
+		"timestamp": float64(1712700000000),
+	}, "")
+	IngestOpenCodeEvent(ctx, st, map[string]any{
+		"event": "session.created", "session_id": "child-a",
+		"parent_session_id": "parent-1", "project_dir": "/home/user/my-app",
+		"title": "(@agent-a subagent)", "timestamp": float64(1712700001000),
+	}, "")
+	IngestOpenCodeEvent(ctx, st, map[string]any{
+		"event": "session.created", "session_id": "child-b",
+		"parent_session_id": "parent-1", "project_dir": "/home/user/my-app",
+		"title": "(@agent-b subagent)", "timestamp": float64(1712700001500),
+	}, "")
+
+	// Parent idles
+	IngestOpenCodeEvent(ctx, st, map[string]any{
+		"event": "session.idle", "session_id": "parent-1",
+		"timestamp": float64(1712700002000),
+	}, "")
+
+	// First child stops — parent should stay active (child-b still running)
+	IngestOpenCodeEvent(ctx, st, map[string]any{
+		"event": "session.idle", "session_id": "child-a",
+		"parent_session_id": "parent-1", "timestamp": float64(1712700003000),
+	}, "")
+
+	session, _ := st.Read().GetSessionByID(ctx, "parent-1")
+	if session.Status != "active" {
+		t.Fatalf("parent status=%q, want active (child-b still running)", session.Status)
+	}
+
+	// Second child stops — parent should now cascade to stopped
+	IngestOpenCodeEvent(ctx, st, map[string]any{
+		"event": "session.idle", "session_id": "child-b",
+		"parent_session_id": "parent-1", "timestamp": float64(1712700004000),
+	}, "")
+
+	session, _ = st.Read().GetSessionByID(ctx, "parent-1")
+	if session.Status != "stopped" {
+		t.Fatalf("parent status=%q, want stopped (all children done)", session.Status)
+	}
+}
+
 func TestIngestOpenCodeStoppedNotReactivatedByPassiveEvents(t *testing.T) {
 	st := testStore(t)
 	ctx := context.Background()

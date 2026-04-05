@@ -256,12 +256,32 @@ func IngestOpenCodeEvent(ctx context.Context, st *store.Store, payload map[strin
 		// `session.deleted` is explicit removal. Mark both idle and delete style
 		// events as stopped so the sidebar reflects when a run is no longer active.
 		//
+		// However, a parent session may go idle while its child sessions (subagents)
+		// are still running. In that case we defer stopping the parent until the
+		// last child finishes, then cascade the stop upward.
+		//
 		// OpenCode emits passive follow-up events (session.updated, session.diff,
 		// session.status) after session.idle. Only real activity signals should
 		// reactivate a stopped session.
-		if parsed.Subtype == "SessionEnd" || parsed.Subtype == "Stop" || parsed.Subtype == "StopFailure" {
+		shouldStop := false
+		if parsed.Subtype == "SessionEnd" || parsed.Subtype == "StopFailure" {
+			shouldStop = true
+		} else if parsed.Subtype == "Stop" {
+			hasActive, err := q.HasActiveChildSessions(ctx, parsed.SessionID)
+			if err != nil {
+				return err
+			}
+			shouldStop = !hasActive
+		}
+
+		if shouldStop {
 			if err := q.UpdateSessionStatus(ctx, parsed.SessionID, "stopped"); err != nil {
 				return err
+			}
+			if parentSessionID != "" {
+				if err := cascadeParentStop(ctx, q, parentSessionID); err != nil {
+					return err
+				}
 			}
 		} else if existingSession != nil && existingSession.Status == "stopped" && isOpenCodeResumeSignal(parsed) {
 			if err := q.UpdateSessionStatus(ctx, parsed.SessionID, "active"); err != nil {
@@ -294,6 +314,29 @@ func IngestOpenCodeEvent(ctx context.Context, st *store.Store, payload map[strin
 	})
 
 	return result, err
+}
+
+// cascadeParentStop checks whether a parent session should be stopped after one
+// of its children stopped. The parent is stopped only when it has no remaining
+// active children AND it already received its own Stop event (session.idle).
+// The check recurses upward so multi-level subagent trees are handled.
+func cascadeParentStop(ctx context.Context, q *store.Queries, sessionID string) error {
+	hasActive, err := q.HasActiveChildSessions(ctx, sessionID)
+	if err != nil || hasActive {
+		return err
+	}
+	received, err := q.HasSessionStopEvent(ctx, sessionID)
+	if err != nil || !received {
+		return err
+	}
+	if err := q.UpdateSessionStatus(ctx, sessionID, "stopped"); err != nil {
+		return err
+	}
+	session, err := q.GetSessionByID(ctx, sessionID)
+	if err != nil || session == nil || session.ParentSessionID == "" {
+		return err
+	}
+	return cascadeParentStop(ctx, q, session.ParentSessionID)
 }
 
 // isOpenCodeResumeSignal returns true for events that indicate real session
