@@ -340,6 +340,26 @@ func (q *Queries) ListRecentSessions(ctx context.Context, limit int) ([]model.Se
 	return scanSessions(rows)
 }
 
+// HasActiveChildSessions returns true if any direct child session of the given
+// parent is still in "active" status.
+func (q *Queries) HasActiveChildSessions(ctx context.Context, parentSessionID string) (bool, error) {
+	var exists bool
+	err := q.db.QueryRowContext(ctx, `
+		SELECT EXISTS(SELECT 1 FROM sessions WHERE parent_session_id = ? AND status = 'active')`,
+		parentSessionID).Scan(&exists)
+	return exists, err
+}
+
+// HasSessionStopEvent returns true if the given session has a recorded Stop
+// event (i.e. it already received a session.idle signal).
+func (q *Queries) HasSessionStopEvent(ctx context.Context, sessionID string) (bool, error) {
+	var exists bool
+	err := q.db.QueryRowContext(ctx, `
+		SELECT EXISTS(SELECT 1 FROM events WHERE session_id = ? AND subtype = 'Stop')`,
+		sessionID).Scan(&exists)
+	return exists, err
+}
+
 func (q *Queries) UpdateSessionStatus(ctx context.Context, id, status string) error {
 	var stoppedAt any
 	if status == "stopped" {
