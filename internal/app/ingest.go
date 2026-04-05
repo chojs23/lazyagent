@@ -208,26 +208,32 @@ func IngestOpenCodeEvent(ctx context.Context, st *store.Store, payload map[strin
 		}
 
 		parentSessionID, _ := parsed.Metadata["parent_session_id"].(string)
+		if parentSessionID == "" && existingSession != nil {
+			parentSessionID = existingSession.ParentSessionID
+		}
 		title := str(payload["title"])
 		slug := title
 		if err := q.UpsertSession(ctx, parsed.SessionID, parentSessionID, projectID, slug, "opencode", parsed.Metadata, parsed.Timestamp, parsed.TranscriptPath); err != nil {
 			return err
 		}
 
-		// root agent = session ID, name from title or "main"
-		// For child sessions (SubAgentName set), use the extracted subagent
-		// name so events carry a clean agent label in the parent's view.
-		// Pass empty when we have no new info so nullIfEmpty + COALESCE in
-		// UpsertAgent preserves any previously stored name. Default "main"
-		// only applies to root sessions (no parent).
+		// Derive agent name only from definitive sources:
+		// - SubAgentName: explicitly parsed from title's @subagent pattern (child sessions)
+		// - title on SessionStart: the initial session title is the canonical name
+		// - "main" default: only for new root sessions on SessionStart
+		// All other events pass empty so nullIfEmpty + COALESCE in UpsertAgent
+		// preserves the previously stored name. This prevents tool output
+		// summaries (PostToolUse title) from overwriting the agent name.
 		rootAgentID := parsed.SessionID
 		agentName := ""
 		if parsed.SubAgentName != "" {
 			agentName = parsed.SubAgentName
-		} else if title != "" {
-			agentName = title
-		} else if parentSessionID == "" {
-			agentName = "main"
+		} else if parsed.Subtype == "SessionStart" {
+			if title != "" {
+				agentName = title
+			} else if parentSessionID == "" {
+				agentName = "main"
+			}
 		}
 		if err := q.UpsertAgent(ctx, rootAgentID, parsed.SessionID, "", agentName, parsed.SubAgentDescription, "", ""); err != nil {
 			return err
@@ -244,11 +250,15 @@ func IngestOpenCodeEvent(ctx context.Context, st *store.Store, payload map[strin
 		// OpenCode treats `session.idle` as the normal end-of-run signal, while
 		// `session.deleted` is explicit removal. Mark both idle and delete style
 		// events as stopped so the sidebar reflects when a run is no longer active.
-		if parsed.Subtype == "SessionEnd" || parsed.Subtype == "Stop" {
+		//
+		// OpenCode emits passive follow-up events (session.updated, session.diff,
+		// session.status) after session.idle. Only real activity signals should
+		// reactivate a stopped session.
+		if parsed.Subtype == "SessionEnd" || parsed.Subtype == "Stop" || parsed.Subtype == "StopFailure" {
 			if err := q.UpdateSessionStatus(ctx, parsed.SessionID, "stopped"); err != nil {
 				return err
 			}
-		} else if existingSession != nil && existingSession.Status == "stopped" {
+		} else if existingSession != nil && existingSession.Status == "stopped" && isOpenCodeResumeSignal(parsed) {
 			if err := q.UpdateSessionStatus(ctx, parsed.SessionID, "active"); err != nil {
 				return err
 			}
@@ -279,6 +289,18 @@ func IngestOpenCodeEvent(ctx context.Context, st *store.Store, payload map[strin
 	})
 
 	return result, err
+}
+
+// isOpenCodeResumeSignal returns true for events that indicate real session
+// activity, as opposed to passive follow-ups (session.updated, session.diff,
+// session.status) that OpenCode emits after session.idle.
+func isOpenCodeResumeSignal(parsed model.ParsedEvent) bool {
+	switch str(parsed.Raw["event"]) {
+	case "tool.execute.before", "tool.execute.after", "session.created", "permission.asked":
+		return true
+	default:
+		return false
+	}
 }
 
 func resolveProject(ctx context.Context, q *store.Queries, slugOverride, transcriptPath string) (int64, error) {
