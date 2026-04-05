@@ -448,6 +448,73 @@ func TestIngestProjectSlugOverride(t *testing.T) {
 	}
 }
 
+func TestIngestCrossRuntimeProjectUnification(t *testing.T) {
+	st := testStore(t)
+	ctx := context.Background()
+
+	// 1. Claude creates project first (transcript path encodes the full path)
+	claudeResult, err := IngestClaudeEvent(ctx, st, map[string]any{
+		"hook_event_name": "SessionStart",
+		"session_id":      "claude-sess-1",
+		"transcript_path": "/home/user/.claude/projects/-home-user-projects-lazyagent2/session.jsonl",
+		"cwd":             "/home/user/projects/lazyagent2",
+		"meta":            map[string]any{"timestamp": float64(1712700000000)},
+	}, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// 2. OpenCode creates session for the same directory
+	ocResult, err := IngestOpenCodeEvent(ctx, st, map[string]any{
+		"event":       "session.created",
+		"session_id":  "opencode-sess-1",
+		"project_dir": "/home/user/projects/lazyagent2",
+		"title":       "main",
+		"timestamp":   float64(1712700001000),
+	}, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Both sessions must belong to the same project
+	if claudeResult.ProjectID != ocResult.ProjectID {
+		t.Fatalf("project IDs differ: claude=%d opencode=%d", claudeResult.ProjectID, ocResult.ProjectID)
+	}
+}
+
+func TestIngestCrossRuntimeProjectUnificationOpenCodeFirst(t *testing.T) {
+	st := testStore(t)
+	ctx := context.Background()
+
+	// 1. OpenCode creates project first
+	ocResult, err := IngestOpenCodeEvent(ctx, st, map[string]any{
+		"event":       "session.created",
+		"session_id":  "opencode-sess-1",
+		"project_dir": "/home/user/projects/myapp",
+		"title":       "main",
+		"timestamp":   float64(1712700000000),
+	}, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// 2. Claude creates session for the same directory
+	claudeResult, err := IngestClaudeEvent(ctx, st, map[string]any{
+		"hook_event_name": "SessionStart",
+		"session_id":      "claude-sess-1",
+		"transcript_path": "/home/user/.claude/projects/-home-user-projects-myapp/session.jsonl",
+		"cwd":             "/home/user/projects/myapp",
+		"meta":            map[string]any{"timestamp": float64(1712700001000)},
+	}, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if ocResult.ProjectID != claudeResult.ProjectID {
+		t.Fatalf("project IDs differ: opencode=%d claude=%d", ocResult.ProjectID, claudeResult.ProjectID)
+	}
+}
+
 func TestDeriveSlugCandidates(t *testing.T) {
 	cases := []struct {
 		input string

@@ -169,21 +169,25 @@ func (s *Store) init(ctx context.Context) error {
 	migrations := []string{
 		`ALTER TABLE sessions ADD COLUMN runtime TEXT NOT NULL DEFAULT 'claude'`,
 		`ALTER TABLE sessions ADD COLUMN parent_session_id TEXT REFERENCES sessions(id)`,
+		`ALTER TABLE projects ADD COLUMN directory TEXT`,
 	}
 	for _, m := range migrations {
 		s.db.ExecContext(ctx, m) // ignore errors (column may already exist)
 	}
+
+	// idempotent index creation for new columns
+	s.db.ExecContext(ctx, `CREATE UNIQUE INDEX IF NOT EXISTS idx_projects_directory ON projects(directory) WHERE directory IS NOT NULL`)
 
 	return nil
 }
 
 // ── Projects ──
 
-func (q *Queries) CreateProject(ctx context.Context, slug, name, transcriptPath string) (int64, error) {
+func (q *Queries) CreateProject(ctx context.Context, slug, name, directory, transcriptPath string) (int64, error) {
 	now := nowMillis()
 	res, err := q.db.ExecContext(ctx,
-		`INSERT INTO projects (slug, name, transcript_path, created_at, updated_at) VALUES (?,?,?,?,?)`,
-		slug, name, nullIfEmpty(transcriptPath), now, now)
+		`INSERT INTO projects (slug, name, directory, transcript_path, created_at, updated_at) VALUES (?,?,?,?,?,?)`,
+		slug, name, nullIfEmpty(directory), nullIfEmpty(transcriptPath), now, now)
 	if err != nil {
 		return 0, fmt.Errorf("create project: %w", err)
 	}
@@ -192,14 +196,25 @@ func (q *Queries) CreateProject(ctx context.Context, slug, name, transcriptPath 
 
 func (q *Queries) GetProjectBySlug(ctx context.Context, slug string) (*model.Project, error) {
 	row := q.db.QueryRowContext(ctx,
-		`SELECT id, slug, name, COALESCE(transcript_path,''), COALESCE(metadata,''), 0, created_at, updated_at FROM projects WHERE slug = ?`, slug)
+		`SELECT id, slug, name, COALESCE(directory,''), COALESCE(transcript_path,''), COALESCE(metadata,''), 0, created_at, updated_at FROM projects WHERE slug = ?`, slug)
+	return scanProject(row)
+}
+
+func (q *Queries) GetProjectByDirectory(ctx context.Context, dir string) (*model.Project, error) {
+	row := q.db.QueryRowContext(ctx,
+		`SELECT id, slug, name, COALESCE(directory,''), COALESCE(transcript_path,''), COALESCE(metadata,''), 0, created_at, updated_at FROM projects WHERE directory = ?`, dir)
 	return scanProject(row)
 }
 
 func (q *Queries) GetProjectByTranscriptPath(ctx context.Context, path string) (*model.Project, error) {
 	row := q.db.QueryRowContext(ctx,
-		`SELECT id, slug, name, COALESCE(transcript_path,''), COALESCE(metadata,''), 0, created_at, updated_at FROM projects WHERE transcript_path = ?`, path)
+		`SELECT id, slug, name, COALESCE(directory,''), COALESCE(transcript_path,''), COALESCE(metadata,''), 0, created_at, updated_at FROM projects WHERE transcript_path = ?`, path)
 	return scanProject(row)
+}
+
+func (q *Queries) UpdateProjectDirectory(ctx context.Context, projectID int64, dir string) error {
+	_, err := q.db.ExecContext(ctx, `UPDATE projects SET directory=?, updated_at=? WHERE id=?`, dir, nowMillis(), projectID)
+	return err
 }
 
 func (q *Queries) IsSlugAvailable(ctx context.Context, slug string) (bool, error) {
@@ -221,7 +236,7 @@ func (q *Queries) UpdateProjectName(ctx context.Context, projectID int64, name s
 
 func (q *Queries) ListProjects(ctx context.Context) ([]model.Project, error) {
 	rows, err := q.db.QueryContext(ctx, `
-		SELECT p.id, p.slug, p.name, COALESCE(p.transcript_path,''), COALESCE(p.metadata,''),
+		SELECT p.id, p.slug, p.name, COALESCE(p.directory,''), COALESCE(p.transcript_path,''), COALESCE(p.metadata,''),
 			COUNT(DISTINCT s.id), p.created_at, p.updated_at
 		FROM projects p
 		LEFT JOIN sessions s ON s.project_id = p.id
@@ -234,7 +249,7 @@ func (q *Queries) ListProjects(ctx context.Context) ([]model.Project, error) {
 	var out []model.Project
 	for rows.Next() {
 		var p model.Project
-		if err := rows.Scan(&p.ID, &p.Slug, &p.Name, &p.TranscriptPath, &p.Metadata, &p.SessionCount, &p.CreatedAt, &p.UpdatedAt); err != nil {
+		if err := rows.Scan(&p.ID, &p.Slug, &p.Name, &p.Directory, &p.TranscriptPath, &p.Metadata, &p.SessionCount, &p.CreatedAt, &p.UpdatedAt); err != nil {
 			return nil, err
 		}
 		out = append(out, p)
@@ -795,7 +810,7 @@ func (q *Queries) ClearAllData(ctx context.Context) error {
 
 func scanProject(row *sql.Row) (*model.Project, error) {
 	var p model.Project
-	err := row.Scan(&p.ID, &p.Slug, &p.Name, &p.TranscriptPath, &p.Metadata, &p.SessionCount, &p.CreatedAt, &p.UpdatedAt)
+	err := row.Scan(&p.ID, &p.Slug, &p.Name, &p.Directory, &p.TranscriptPath, &p.Metadata, &p.SessionCount, &p.CreatedAt, &p.UpdatedAt)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
