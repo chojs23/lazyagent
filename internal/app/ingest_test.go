@@ -189,6 +189,52 @@ func TestIngestOpenCodeSessionIdleMarksStopped(t *testing.T) {
 	}
 }
 
+func TestIngestOpenCodeStoppedNotReactivatedByPassiveEvents(t *testing.T) {
+	st := testStore(t)
+	ctx := context.Background()
+
+	_, err := IngestOpenCodeEvent(ctx, st, map[string]any{
+		"event":       "session.created",
+		"session_id":  "opencode-1",
+		"project_dir": "/home/user/my-app",
+		"title":       "Greeting",
+		"timestamp":   float64(1712700000000),
+	}, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Stop the session
+	_, err = IngestOpenCodeEvent(ctx, st, map[string]any{
+		"event":      "session.idle",
+		"session_id": "opencode-1",
+		"timestamp":  float64(1712700010000),
+	}, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Passive follow-up events that OpenCode emits after session.idle
+	// should NOT reactivate the session.
+	for _, evt := range []map[string]any{
+		{"event": "session.updated", "session_id": "opencode-1", "title": "Greeting", "timestamp": float64(1712700010046)},
+		{"event": "session.diff", "session_id": "opencode-1", "timestamp": float64(1712700010054)},
+		{"event": "session.status", "session_id": "opencode-1", "timestamp": float64(1712700010060)},
+	} {
+		if _, err := IngestOpenCodeEvent(ctx, st, evt, ""); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	session, err := st.Read().GetSessionByID(ctx, "opencode-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if session.Status != "stopped" {
+		t.Fatalf("got status=%q, want stopped (passive events should not reactivate)", session.Status)
+	}
+}
+
 func TestIngestOpenCodeSessionDeletedMarksStopped(t *testing.T) {
 	st := testStore(t)
 	ctx := context.Background()
@@ -272,6 +318,108 @@ func TestIngestOpenCodeEventReactivatesStoppedSession(t *testing.T) {
 	}
 	if session.Status != "active" {
 		t.Fatalf("got status=%q, want active", session.Status)
+	}
+}
+
+func TestIngestOpenCodeAgentNameNotOverwrittenByToolTitle(t *testing.T) {
+	st := testStore(t)
+	ctx := context.Background()
+
+	// 1. Create root session with title "Greeting"
+	_, err := IngestOpenCodeEvent(ctx, st, map[string]any{
+		"event":       "session.created",
+		"session_id":  "root-1",
+		"project_dir": "/home/user/my-app",
+		"title":       "Greeting",
+		"timestamp":   float64(1712700000000),
+	}, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	agent, err := st.Read().GetAgentByID(ctx, "root-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if agent.Name != "Greeting" {
+		t.Fatalf("after session.created: got name=%q, want Greeting", agent.Name)
+	}
+
+	// 2. PostToolUse with tool output title should NOT overwrite agent name
+	for _, evt := range []map[string]any{
+		{"event": "tool.execute.after", "session_id": "root-1", "tool": "Task", "call_id": "c1", "title": "0 todos", "timestamp": float64(1712700001000)},
+		{"event": "tool.execute.after", "session_id": "root-1", "tool": "Read", "call_id": "c2", "title": "plugins/opencode/src/index.ts", "timestamp": float64(1712700002000)},
+		{"event": "session.status", "session_id": "root-1", "timestamp": float64(1712700003000)},
+		{"event": "tool.execute.after", "session_id": "root-1", "tool": "Agent", "call_id": "c3", "title": "unspecified-low - Map app architecture", "timestamp": float64(1712700004000)},
+	} {
+		if _, err := IngestOpenCodeEvent(ctx, st, evt, ""); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	agent, err = st.Read().GetAgentByID(ctx, "root-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if agent.Name != "Greeting" {
+		t.Fatalf("after tool events: got name=%q, want Greeting", agent.Name)
+	}
+}
+
+func TestIngestOpenCodeChildSessionAgentNamePreserved(t *testing.T) {
+	st := testStore(t)
+	ctx := context.Background()
+
+	// 1. Create parent session
+	_, err := IngestOpenCodeEvent(ctx, st, map[string]any{
+		"event":       "session.created",
+		"session_id":  "parent-1",
+		"project_dir": "/home/user/my-app",
+		"title":       "main",
+		"timestamp":   float64(1712700000000),
+	}, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// 2. Create child session with subagent name in title
+	_, err = IngestOpenCodeEvent(ctx, st, map[string]any{
+		"event":             "session.created",
+		"session_id":        "child-1",
+		"parent_session_id": "parent-1",
+		"project_dir":       "/home/user/my-app",
+		"title":             "Map affected modules (@subagent1 subagent)",
+		"timestamp":         float64(1712700001000),
+	}, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	agent, err := st.Read().GetAgentByID(ctx, "child-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if agent.Name != "subagent1" {
+		t.Fatalf("after session.created: got agent name=%q, want subagent1", agent.Name)
+	}
+
+	// 3. Subsequent events without parent_session_id or title (session.status, tool events)
+	for _, evt := range []map[string]any{
+		{"event": "session.status", "session_id": "child-1", "timestamp": float64(1712700002000)},
+		{"event": "tool.execute.before", "session_id": "child-1", "tool": "Read", "call_id": "c1", "timestamp": float64(1712700003000)},
+		{"event": "tool.execute.after", "session_id": "child-1", "tool": "Read", "call_id": "c1", "timestamp": float64(1712700004000)},
+	} {
+		if _, err := IngestOpenCodeEvent(ctx, st, evt, ""); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	agent, err = st.Read().GetAgentByID(ctx, "child-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if agent.Name != "subagent1" {
+		t.Fatalf("after follow-up events: got agent name=%q, want subagent1", agent.Name)
 	}
 }
 
