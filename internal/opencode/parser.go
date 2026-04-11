@@ -62,12 +62,30 @@ func ParseRawEvent(raw map[string]any) model.ParsedEvent {
 	case "session.error":
 		p.Type = "system"
 		p.Subtype = "StopFailure"
-	case "permission.asked":
+	case "session.status":
 		p.Type = "system"
-		p.Subtype = "Notification"
+		p.Subtype = "SessionStatus"
+	case "session.diff":
+		p.Type = "session"
+		p.Subtype = "SessionDiff"
 	case "session.compacted":
 		p.Type = "system"
 		p.Subtype = "Notification"
+	case "permission.asked":
+		p.Type = "system"
+		p.Subtype = "Notification"
+	case "permission.replied":
+		p.Type = "system"
+		p.Subtype = "PermissionReply"
+	case "todo.updated":
+		p.Type = "system"
+		p.Subtype = "TodoUpdate"
+	case "command.executed":
+		p.Type = "system"
+		p.Subtype = "CommandExecuted"
+	case "file.edited":
+		p.Type = "system"
+		p.Subtype = "FileEdited"
 	default:
 		p.Type = "system"
 		p.Subtype = event
@@ -95,6 +113,55 @@ func ParseRawEvent(raw map[string]any) model.ParsedEvent {
 	for _, k := range []string{"cwd", "project_dir"} {
 		if v, ok := raw[k]; ok {
 			p.Metadata[k] = v
+		}
+	}
+
+	// Propagate event-specific fields into metadata so downstream consumers
+	// (ingest, TUI) can access them without re-parsing the raw payload.
+	switch event {
+	case "session.status":
+		for _, k := range []string{"status_type", "retry_attempt", "retry_message", "retry_next"} {
+			if v, ok := raw[k]; ok {
+				p.Metadata[k] = v
+			}
+		}
+	case "session.diff":
+		for _, k := range []string{"diff_file_count", "diff_additions", "diff_deletions"} {
+			if v, ok := raw[k]; ok {
+				p.Metadata[k] = v
+			}
+		}
+	case "session.error":
+		for _, k := range []string{"error_type", "error_message"} {
+			if v, ok := raw[k]; ok {
+				p.Metadata[k] = v
+			}
+		}
+	case "permission.asked":
+		for _, k := range []string{"permission", "patterns"} {
+			if v, ok := raw[k]; ok {
+				p.Metadata[k] = v
+			}
+		}
+	case "permission.replied":
+		if v, ok := raw["reply"]; ok {
+			p.Metadata["reply"] = v
+		}
+	case "todo.updated":
+		for _, k := range []string{"todo_count", "todos"} {
+			if v, ok := raw[k]; ok {
+				p.Metadata[k] = v
+			}
+		}
+	case "command.executed":
+		for _, k := range []string{"command_name", "command_args"} {
+			if v, ok := raw[k]; ok {
+				p.Metadata[k] = v
+			}
+		}
+	case "file.edited":
+		if v, ok := raw["file"]; ok {
+			p.Metadata["file"] = v
 		}
 	}
 

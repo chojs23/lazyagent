@@ -257,21 +257,23 @@ func IngestOpenCodeEvent(ctx context.Context, st *store.Store, payload map[strin
 			}
 		}
 
-		// OpenCode treats `session.idle` as the normal end-of-run signal, while
-		// `session.deleted` is explicit removal. Mark both idle and delete style
-		// events as stopped so the sidebar reflects when a run is no longer active.
+		// OpenCode uses `session.status` with status_type "idle"/"busy"/"retry"
+		// as the canonical execution state signal. The older `session.idle` event
+		// (mapped to subtype "Stop") is deprecated but still supported.
 		//
-		// However, a parent session may go idle while its child sessions (subagents)
+		// A parent session may go idle while its child sessions (subagents)
 		// are still running. In that case we defer stopping the parent until the
 		// last child finishes, then cascade the stop upward.
 		//
-		// OpenCode emits passive follow-up events (session.updated, session.diff,
-		// session.status) after session.idle. Only real activity signals should
-		// reactivate a stopped session.
+		// OpenCode emits passive follow-up events (session.updated, session.diff)
+		// after idle. Only real activity signals should reactivate a stopped session.
+		statusType, _ := parsed.Metadata["status_type"].(string)
+		isIdleStatus := parsed.Subtype == "SessionStatus" && statusType == "idle"
+
 		shouldStop := false
 		if parsed.Subtype == "SessionEnd" || parsed.Subtype == "StopFailure" {
 			shouldStop = true
-		} else if parsed.Subtype == "Stop" {
+		} else if parsed.Subtype == "Stop" || isIdleStatus {
 			hasActive, err := q.HasActiveChildSessions(ctx, parsed.SessionID)
 			if err != nil {
 				return err
@@ -323,14 +325,15 @@ func IngestOpenCodeEvent(ctx context.Context, st *store.Store, payload map[strin
 
 // cascadeParentStop checks whether a parent session should be stopped after one
 // of its children stopped. The parent is stopped only when it has no remaining
-// active children AND it already received its own Stop event (session.idle).
+// active children AND it already received its own idle signal (either the
+// deprecated session.idle "Stop" event or the newer session.status "idle").
 // The check recurses upward so multi-level subagent trees are handled.
 func cascadeParentStop(ctx context.Context, q *store.Queries, sessionID string) error {
 	hasActive, err := q.HasActiveChildSessions(ctx, sessionID)
 	if err != nil || hasActive {
 		return err
 	}
-	received, err := q.HasSessionStopEvent(ctx, sessionID)
+	received, err := q.HasSessionIdleEvent(ctx, sessionID)
 	if err != nil || !received {
 		return err
 	}
@@ -345,9 +348,14 @@ func cascadeParentStop(ctx context.Context, q *store.Queries, sessionID string) 
 }
 
 // isOpenCodeResumeSignal returns true for events that indicate real session
-// activity, as opposed to passive follow-ups (session.updated, session.diff,
-// session.status) that OpenCode emits after session.idle.
+// activity, as opposed to passive follow-ups (session.updated, session.diff)
+// that OpenCode emits after idle.
 func isOpenCodeResumeSignal(parsed model.ParsedEvent) bool {
+	// session.status with type "busy" means the session is actively working
+	if parsed.Subtype == "SessionStatus" {
+		statusType, _ := parsed.Metadata["status_type"].(string)
+		return statusType == "busy"
+	}
 	switch str(parsed.Raw["event"]) {
 	case "tool.execute.before", "tool.execute.after", "session.created", "permission.asked":
 		return true

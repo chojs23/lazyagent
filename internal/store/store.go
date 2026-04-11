@@ -350,12 +350,18 @@ func (q *Queries) HasActiveChildSessions(ctx context.Context, parentSessionID st
 	return exists, err
 }
 
-// HasSessionStopEvent returns true if the given session has a recorded Stop
-// event (i.e. it already received a session.idle signal).
-func (q *Queries) HasSessionStopEvent(ctx context.Context, sessionID string) (bool, error) {
+// HasSessionIdleEvent returns true if the given session has a recorded idle
+// signal: either a deprecated "Stop" (session.idle) event or a "SessionStatus"
+// event with status_type "idle" in its payload.
+func (q *Queries) HasSessionIdleEvent(ctx context.Context, sessionID string) (bool, error) {
 	var exists bool
 	err := q.db.QueryRowContext(ctx, `
-		SELECT EXISTS(SELECT 1 FROM events WHERE session_id = ? AND subtype = 'Stop')`,
+		SELECT EXISTS(
+			SELECT 1 FROM events WHERE session_id = ? AND (
+				subtype = 'Stop'
+				OR (subtype = 'SessionStatus' AND json_extract(payload, '$.status_type') = 'idle')
+			)
+		)`,
 		sessionID).Scan(&exists)
 	return exists, err
 }

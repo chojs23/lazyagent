@@ -189,6 +189,149 @@ func TestIngestOpenCodeSessionIdleMarksStopped(t *testing.T) {
 	}
 }
 
+func TestIngestOpenCodeSessionStatusIdleMarksStopped(t *testing.T) {
+	st := testStore(t)
+	ctx := context.Background()
+
+	_, err := IngestOpenCodeEvent(ctx, st, map[string]any{
+		"event":       "session.created",
+		"session_id":  "opencode-1",
+		"project_dir": "/home/user/my-app",
+		"title":       "main",
+		"timestamp":   float64(1712700000000),
+	}, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// session.status with type "idle" should stop the session
+	_, err = IngestOpenCodeEvent(ctx, st, map[string]any{
+		"event":       "session.status",
+		"session_id":  "opencode-1",
+		"status_type": "idle",
+		"project_dir": "/home/user/my-app",
+		"timestamp":   float64(1712700010000),
+	}, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	session, err := st.Read().GetSessionByID(ctx, "opencode-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if session.Status != "stopped" {
+		t.Fatalf("got status=%q, want stopped", session.Status)
+	}
+}
+
+func TestIngestOpenCodeSessionStatusBusyReactivates(t *testing.T) {
+	st := testStore(t)
+	ctx := context.Background()
+
+	IngestOpenCodeEvent(ctx, st, map[string]any{
+		"event":       "session.created",
+		"session_id":  "opencode-1",
+		"project_dir": "/home/user/my-app",
+		"title":       "main",
+		"timestamp":   float64(1712700000000),
+	}, "")
+
+	// Stop via session.status idle
+	IngestOpenCodeEvent(ctx, st, map[string]any{
+		"event":       "session.status",
+		"session_id":  "opencode-1",
+		"status_type": "idle",
+		"timestamp":   float64(1712700010000),
+	}, "")
+
+	// session.status with type "busy" should reactivate
+	IngestOpenCodeEvent(ctx, st, map[string]any{
+		"event":       "session.status",
+		"session_id":  "opencode-1",
+		"status_type": "busy",
+		"timestamp":   float64(1712700020000),
+	}, "")
+
+	session, _ := st.Read().GetSessionByID(ctx, "opencode-1")
+	if session.Status != "active" {
+		t.Fatalf("got status=%q, want active (busy should reactivate)", session.Status)
+	}
+}
+
+func TestIngestOpenCodeSessionStatusIdleDeferredWithChildren(t *testing.T) {
+	st := testStore(t)
+	ctx := context.Background()
+
+	// Parent + child
+	IngestOpenCodeEvent(ctx, st, map[string]any{
+		"event": "session.created", "session_id": "parent-1",
+		"project_dir": "/home/user/my-app", "title": "main",
+		"timestamp": float64(1712700000000),
+	}, "")
+	IngestOpenCodeEvent(ctx, st, map[string]any{
+		"event": "session.created", "session_id": "child-1",
+		"parent_session_id": "parent-1", "project_dir": "/home/user/my-app",
+		"title": "(@worker subagent)", "timestamp": float64(1712700001000),
+	}, "")
+
+	// Parent gets session.status idle while child is active
+	IngestOpenCodeEvent(ctx, st, map[string]any{
+		"event": "session.status", "session_id": "parent-1",
+		"status_type": "idle", "timestamp": float64(1712700002000),
+	}, "")
+
+	session, _ := st.Read().GetSessionByID(ctx, "parent-1")
+	if session.Status != "active" {
+		t.Fatalf("parent status=%q, want active (child still running)", session.Status)
+	}
+
+	// Child gets session.status idle -> parent should cascade to stopped
+	IngestOpenCodeEvent(ctx, st, map[string]any{
+		"event": "session.status", "session_id": "child-1",
+		"parent_session_id": "parent-1",
+		"status_type": "idle", "timestamp": float64(1712700003000),
+	}, "")
+
+	child, _ := st.Read().GetSessionByID(ctx, "child-1")
+	if child.Status != "stopped" {
+		t.Fatalf("child status=%q, want stopped", child.Status)
+	}
+
+	session, _ = st.Read().GetSessionByID(ctx, "parent-1")
+	if session.Status != "stopped" {
+		t.Fatalf("parent status=%q, want stopped (all children done)", session.Status)
+	}
+}
+
+func TestIngestOpenCodeSessionStatusRetryNotStopped(t *testing.T) {
+	st := testStore(t)
+	ctx := context.Background()
+
+	IngestOpenCodeEvent(ctx, st, map[string]any{
+		"event":       "session.created",
+		"session_id":  "opencode-1",
+		"project_dir": "/home/user/my-app",
+		"title":       "main",
+		"timestamp":   float64(1712700000000),
+	}, "")
+
+	// session.status with type "retry" should NOT stop the session
+	IngestOpenCodeEvent(ctx, st, map[string]any{
+		"event":         "session.status",
+		"session_id":    "opencode-1",
+		"status_type":   "retry",
+		"retry_attempt": float64(1),
+		"retry_message": "rate limited",
+		"timestamp":     float64(1712700010000),
+	}, "")
+
+	session, _ := st.Read().GetSessionByID(ctx, "opencode-1")
+	if session.Status != "active" {
+		t.Fatalf("got status=%q, want active (retry should not stop)", session.Status)
+	}
+}
+
 func TestIngestOpenCodeIdleDeferredWhileChildrenActive(t *testing.T) {
 	st := testStore(t)
 	ctx := context.Background()

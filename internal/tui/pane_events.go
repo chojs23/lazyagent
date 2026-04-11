@@ -266,7 +266,41 @@ func eventBrief(ev model.Event) string {
 	case "SubagentStop":
 		return truncate(getStr(p, "agent_type"), 80)
 	case "Notification":
-		return truncate(getStr(p, "message"), 80)
+		return truncate(pick(getStr(p, "message"), getStr(p, "permission")), 80)
+
+	case "SessionStatus":
+		st := getStr(p, "status_type")
+		if st == "retry" {
+			attempt := getStr(p, "retry_attempt")
+			msg := getStr(p, "retry_message")
+			if attempt != "" {
+				return truncate(fmt.Sprintf("retry #%s: %s", attempt, msg), 80)
+			}
+			return truncate("retry: "+msg, 80)
+		}
+		return st
+	case "SessionDiff":
+		fc := getStr(p, "diff_file_count")
+		add := getStr(p, "diff_additions")
+		del := getStr(p, "diff_deletions")
+		if fc != "" {
+			return fmt.Sprintf("%s files (+%s -%s)", fc, add, del)
+		}
+		return ""
+	case "PermissionReply":
+		return getStr(p, "reply")
+	case "TodoUpdate":
+		return getStr(p, "todo_count") + " todos"
+	case "CommandExecuted":
+		name := getStr(p, "command_name")
+		args := getStr(p, "command_args")
+		if args != "" {
+			return truncate(name+" "+args, 80)
+		}
+		return name
+	case "FileEdited":
+		return getStr(p, "file")
+
 	default:
 		return ""
 	}
