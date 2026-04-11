@@ -25,19 +25,36 @@ function ingest(payload: Record<string, unknown>): void {
   }
 }
 
+// Events we forward from the generic event hook.
+// Tool events are handled by their own dedicated hooks.
+const FORWARDED_EVENTS = new Set([
+  "session.created",
+  "session.updated",
+  "session.deleted",
+  "session.idle",
+  "session.status",
+  "session.diff",
+  "session.error",
+  "session.compacted",
+  "permission.asked",
+  "permission.replied",
+  "todo.updated",
+  "command.executed",
+  "file.edited",
+]);
+
 function extractSessionID(event: Record<string, unknown>): string {
   const props = (event.properties ?? {}) as Record<string, unknown>;
   const type = event.type as string;
 
-  // session.created / session.deleted: properties.info.id
-  if (type === "session.created" || type === "session.deleted") {
+  // session.created / session.deleted / session.updated: properties.info.id
+  if (
+    type === "session.created" ||
+    type === "session.deleted" ||
+    type === "session.updated"
+  ) {
     const info = props.info as Record<string, unknown> | undefined;
     return (info?.id as string) || "";
-  }
-
-  // session.idle: properties.sessionID
-  if (type === "session.idle") {
-    return (props.sessionID as string) || "";
   }
 
   // fallback: try common locations
@@ -48,6 +65,98 @@ function extractSessionID(event: Record<string, unknown>): string {
     (event.session_id as string) ||
     ""
   );
+}
+
+// Extract event-specific payload fields from properties.
+function extractEventData(
+  type: string,
+  props: Record<string, unknown>
+): Record<string, unknown> {
+  const info = (props.info ?? {}) as Record<string, unknown>;
+
+  switch (type) {
+    case "session.created":
+    case "session.deleted":
+    case "session.updated":
+      return {
+        parent_session_id: (info.parentID as string) || "",
+        title: (info.title as string) || "",
+      };
+
+    case "session.status": {
+      const status = (props.status ?? {}) as Record<string, unknown>;
+      return {
+        status_type: (status.type as string) || "",
+        // retry fields (only present when status.type === "retry")
+        retry_attempt: status.attempt ?? null,
+        retry_message: (status.message as string) || "",
+        retry_next: status.next ?? null,
+      };
+    }
+
+    case "session.diff": {
+      const diffs = (props.diff ?? []) as Array<Record<string, unknown>>;
+      let additions = 0;
+      let deletions = 0;
+      for (const d of diffs) {
+        additions += (d.additions as number) || 0;
+        deletions += (d.deletions as number) || 0;
+      }
+      return {
+        diff_file_count: diffs.length,
+        diff_additions: additions,
+        diff_deletions: deletions,
+      };
+    }
+
+    case "session.error": {
+      const error = (props.error ?? {}) as Record<string, unknown>;
+      return {
+        error_type: (error.type as string) || "",
+        error_message: (error.message as string) || "",
+      };
+    }
+
+    case "permission.asked":
+      return {
+        permission: (props.permission as string) || "",
+        patterns: props.patterns ?? [],
+      };
+
+    case "permission.replied":
+      return {
+        reply: (props.reply as string) || "",
+      };
+
+    case "todo.updated": {
+      const todos = (props.todos ?? []) as Array<Record<string, unknown>>;
+      return {
+        todo_count: todos.length,
+        todos: todos.map((t) => ({
+          content: t.content,
+          status: t.status,
+          priority: t.priority,
+        })),
+      };
+    }
+
+    case "command.executed":
+      return {
+        command_name: (props.name as string) || "",
+        command_args: (props.arguments as string) || "",
+      };
+
+    case "file.edited":
+      return {
+        file: (props.file as string) || "",
+      };
+
+    default:
+      return {
+        parent_session_id: (info.parentID as string) || "",
+        title: (info.title as string) || "",
+      };
+  }
 }
 
 export const LazyagentPlugin: Plugin = async ({ project }) => {
@@ -89,32 +198,24 @@ export const LazyagentPlugin: Plugin = async ({ project }) => {
     event: async ({ event }: { event: Record<string, unknown> }) => {
       const type = event.type as string;
 
-      if (
-        !type.startsWith("session.") &&
-        type !== "permission.asked"
-      ) {
-        return;
-      }
-
-      if (type === "tool.execute.before" || type === "tool.execute.after") {
+      if (!FORWARDED_EVENTS.has(type)) {
         return;
       }
 
       const sessionID = extractSessionID(event);
       if (!sessionID) {
-        return; // skip events without identifiable session
+        return;
       }
 
       const props = (event.properties ?? {}) as Record<string, unknown>;
-      const info = (props.info ?? {}) as Record<string, unknown>;
+      const eventData = extractEventData(type, props);
 
       ingest({
         event: type,
         session_id: sessionID,
-        parent_session_id: (info.parentID as string) || "",
-        title: (info.title as string) || "",
         project_dir: projectDir,
         timestamp: Date.now(),
+        ...eventData,
       });
     },
   };

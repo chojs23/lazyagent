@@ -206,7 +206,38 @@ func (d *detailModel) renderToolDetail(ev *model.Event) string {
 	case "Notification":
 		return joinNonEmpty("\n",
 			field("Type", get("notification_type")),
+			field("Permission", get("permission")),
 			field("Message", get("message")),
+		)
+	case "SessionStatus":
+		return joinNonEmpty("\n",
+			field("Status", get("status_type")),
+			field("Retry Attempt", get("retry_attempt")),
+			field("Retry Message", get("retry_message")),
+		)
+	case "SessionDiff":
+		return joinNonEmpty("\n",
+			field("Files Changed", get("diff_file_count")),
+			field("Additions", get("diff_additions")),
+			field("Deletions", get("diff_deletions")),
+		)
+	case "PermissionReply":
+		return joinNonEmpty("\n",
+			field("Reply", get("reply")),
+		)
+	case "TodoUpdate":
+		return joinNonEmpty("\n",
+			field("Count", get("todo_count")),
+			block("Todos", get("todos")),
+		)
+	case "CommandExecuted":
+		return joinNonEmpty("\n",
+			field("Command", get("command_name")),
+			field("Arguments", get("command_args")),
+		)
+	case "FileEdited":
+		return joinNonEmpty("\n",
+			field("File", get("file")),
 		)
 	}
 
