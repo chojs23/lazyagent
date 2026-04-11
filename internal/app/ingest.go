@@ -225,6 +225,9 @@ func IngestOpenCodeEvent(ctx context.Context, st *store.Store, payload map[strin
 		// Derive agent name only from definitive sources:
 		// - SubAgentName: explicitly parsed from title's @subagent pattern (child sessions)
 		// - title on SessionStart: the initial session title is the canonical name
+		// - title on session.updated: OpenCode may replace a placeholder title
+		//   (e.g. "New session - <timestamp>") with the real title after the
+		//   first user prompt is submitted
 		// - "main" default: only for new root sessions on SessionStart
 		// All other events pass empty so nullIfEmpty + COALESCE in UpsertAgent
 		// preserves the previously stored name. This prevents tool output
@@ -239,6 +242,8 @@ func IngestOpenCodeEvent(ctx context.Context, st *store.Store, payload map[strin
 			} else if parentSessionID == "" {
 				agentName = "main"
 			}
+		} else if parsed.Subtype == "session.updated" && title != "" {
+			agentName = title
 		}
 		if err := q.UpsertAgent(ctx, rootAgentID, parsed.SessionID, "", agentName, parsed.SubAgentDescription, "", ""); err != nil {
 			return err

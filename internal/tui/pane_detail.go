@@ -134,11 +134,14 @@ func (d *detailModel) renderToolDetail(ev *model.Event) string {
 		return ev.PayloadPretty()
 	}
 
-	// extract tool_input and tool_response from hook events
+	// Claude stores tool parameters in "tool_input", OpenCode in "args".
 	input := asMapSafe(payload["tool_input"])
+	if len(input) == 0 {
+		input = asMapSafe(payload["args"])
+	}
 	response := prettyJSON(getStr(payload, "tool_response"))
 
-	// merge: prefer tool_input fields, fall back to top-level
+	// merge: prefer input fields, fall back to top-level payload
 	get := func(key string) string {
 		if v := getStr(input, key); v != "" {
 			return v
