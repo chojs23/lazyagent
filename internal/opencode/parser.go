@@ -29,7 +29,7 @@ func ParseRawEvent(raw map[string]any) model.ParsedEvent {
 	p := model.ParsedEvent{
 		SessionID:      firstNonEmpty(str(raw["session_id"]), "unknown"),
 		TranscriptPath: str(raw["project_dir"]),
-		ToolName:       str(raw["tool"]),
+		ToolName:       normalizeToolName(str(raw["tool"])),
 		ToolUseID:      str(raw["call_id"]),
 		OwnerAgentID:   firstNonEmpty(str(raw["agent_id"]), str(raw["session_id"])),
 		Metadata:       map[string]any{},
@@ -99,6 +99,29 @@ func ParseRawEvent(raw map[string]any) model.ParsedEvent {
 	}
 
 	return p
+}
+
+// normalizeToolName maps OpenCode's lowercase tool names to the PascalCase
+// convention used by Claude, so the TUI can use a single set of switch cases.
+func normalizeToolName(name string) string {
+	switch name {
+	case "bash":
+		return "Bash"
+	case "read":
+		return "Read"
+	case "edit":
+		return "Edit"
+	case "write":
+		return "Write"
+	case "grep":
+		return "Grep"
+	case "glob":
+		return "Glob"
+	case "agent":
+		return "Agent"
+	default:
+		return name
+	}
 }
 
 func str(v any) string {

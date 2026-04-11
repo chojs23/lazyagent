@@ -188,7 +188,13 @@ func eventBrief(ev model.Event) string {
 	if err := json.Unmarshal([]byte(ev.Payload), &p); err != nil {
 		return ""
 	}
+
+	// Claude stores tool parameters in "tool_input", OpenCode in "args".
+	// Merge both so the same extraction logic works for either runtime.
 	input := asMapSafe(p["tool_input"])
+	if len(input) == 0 {
+		input = asMapSafe(p["args"])
+	}
 
 	switch ev.Subtype {
 	case "UserPromptSubmit":
@@ -199,9 +205,9 @@ func eventBrief(ev model.Event) string {
 		case "Bash":
 			return truncate(firstLine(getStr(input, "command")), 80)
 		case "Read":
-			return getStr(input, "file_path")
+			return pick(getStr(input, "file_path"), getStr(input, "filePath"))
 		case "Edit", "Write":
-			return getStr(input, "file_path")
+			return pick(getStr(input, "file_path"), getStr(input, "filePath"))
 		case "Grep":
 			s := getStr(input, "pattern")
 			if path := getStr(input, "path"); path != "" {
@@ -221,6 +227,9 @@ func eventBrief(ev model.Event) string {
 		}
 
 	case "PostToolUse", "PostToolUseFailure":
+		// OpenCode puts tool output in top-level "output" or "title" fields.
+		ocOutput := pick(getStr(p, "title"), getStr(p, "output"))
+
 		switch ev.ToolName {
 		case "Bash":
 			resp := asMapSafe(p["tool_response"])
@@ -228,16 +237,22 @@ func eventBrief(ev model.Event) string {
 			if out == "" {
 				out = getStr(resp, "stderr")
 			}
+			if out == "" {
+				out = ocOutput
+			}
 			return truncate(firstLine(out), 80)
 		case "Read":
-			return truncate(getStr(input, "file_path"), 80)
+			return truncate(pick(getStr(input, "file_path"), getStr(input, "filePath"), ocOutput), 80)
 		case "Edit", "Write":
-			return truncate(getStr(input, "file_path"), 80)
+			return truncate(pick(getStr(input, "file_path"), getStr(input, "filePath"), ocOutput), 80)
 		default:
 			resp := getStr(p, "tool_response")
 			if resp == "" {
 				respMap := asMapSafe(p["tool_response"])
 				resp = getStr(respMap, "stdout")
+			}
+			if resp == "" {
+				resp = ocOutput
 			}
 			return truncate(firstLine(resp), 80)
 		}
@@ -255,4 +270,14 @@ func eventBrief(ev model.Event) string {
 	default:
 		return ""
 	}
+}
+
+// pick returns the first non-empty string.
+func pick(vals ...string) string {
+	for _, v := range vals {
+		if v != "" {
+			return v
+		}
+	}
+	return ""
 }
