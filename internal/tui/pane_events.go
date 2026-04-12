@@ -10,30 +10,49 @@ import (
 	"github.com/chojs23/lazyagent/internal/model"
 )
 
+const eventsPageSize = 1000
+
 type eventsModel struct {
-	events     []model.Event
-	rawCount   int
-	cursor     int
-	scroll     int
-	hScroll    int
-	autoFollow bool
-	height     int
-	width      int
+	events       []model.Event
+	rawCount     int
+	loadedOffset int // offset of the first loaded event in the full list
+	cursor       int
+	scroll       int
+	hScroll      int
+	autoFollow   bool
+	height       int
+	width        int
 }
 
 func newEvents() eventsModel {
 	return eventsModel{autoFollow: true}
 }
 
-func (e *eventsModel) setEvents(events []model.Event, rawCount int) {
+func (e *eventsModel) setEvents(events []model.Event, rawCount int, offset int) {
 	e.events = events
 	e.rawCount = rawCount
+	e.loadedOffset = offset
 	if e.autoFollow && len(events) > 0 {
 		e.cursor = len(events) - 1
 	}
 	if e.cursor >= len(events) {
 		e.cursor = max(len(events)-1, 0)
 	}
+}
+
+func (e *eventsModel) prependEvents(events []model.Event, newOffset int) {
+	added := len(events)
+	e.events = append(events, e.events...)
+	e.loadedOffset = newOffset
+	// Shift cursor so it stays on the same event
+	e.cursor += added
+	e.scroll += added
+}
+
+// needsOlder returns true when the cursor is near the top of loaded events
+// and there are older events available to load.
+func (e *eventsModel) needsOlder() bool {
+	return e.loadedOffset > 0 && e.cursor < eventsPageSize/2
 }
 
 func (e *eventsModel) moveUp() {
