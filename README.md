@@ -1,7 +1,5 @@
 # lazyagent
 
-<img width="1613" height="848" alt="lazyagent" src="https://github.com/user-attachments/assets/8ba701ac-fec9-4bc3-8a66-a213b33eed24" />
-
 `lazyagent` is a terminal TUI app for watching what Claude, Codex, and OpenCode sessions are doing.
 
 It collects runtime events, stores them in SQLite, and shows them in a structured interface so you can inspect projects, sessions, agents, subagents, tools, prompts, outputs, and status changes without digging through raw hook payloads.
@@ -18,6 +16,26 @@ Install from the Homebrew tap with:
 brew tap chojs23/homebrew-tap
 brew install --cask lazyagent
 ```
+
+### Release install script
+
+Install the latest release asset into `~/.local/bin`:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/chojs23/lazyagent/main/scripts/install.sh | sh
+```
+
+Install a specific release into a custom directory:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/chojs23/lazyagent/main/scripts/install.sh | \
+  sh -s -- --version v0.1.0 --bin-dir /usr/local/bin
+```
+
+Installer options:
+
+- `--version <tag>` or `VERSION=<tag>` to install a specific release
+- `--bin-dir <dir>` or `BIN_DIR=<dir>` to choose the install directory
 
 ### Go install
 
