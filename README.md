@@ -132,17 +132,18 @@ The shipping plugin is embedded into the Go binary, so keep the maintained sourc
 
 ## Keybindings
 
-The TUI has four panes:
+Lazyagent has five panes:
 
 1. Projects and root sessions
-2. Agents and subagents
-3. Events
-4. Event detail
+2. Session summary
+3. Agents and subagents
+4. Events
+5. Event detail
 
 Main keys:
 
 - `tab`, `shift+tab` move between panes
-- `1`, `2`, `3`, `4` jump to a specific pane
+- `1`, `2`, `3`, `4`, `5` jump to a specific pane
 - `j`, `k` move through lists
 - `g`, `G` jump to top or bottom
 - `ctrl+u`, `ctrl+d` move by half a page
@@ -156,6 +157,10 @@ Main keys:
 - `r` refreshes data
 - `?` toggles help
 - `q` quits
+
+When a non panic internal app error happens, the TUI shows a small toast in the
+bottom right for about 5 seconds while also writing the error to
+`lazyagent.log`.
 
 Detail pane keys:
 

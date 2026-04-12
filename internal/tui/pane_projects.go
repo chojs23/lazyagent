@@ -64,16 +64,6 @@ func (p *projectsModel) rebuildItems() {
 }
 
 func (p *projectsModel) addSessionItem(projectID int64, sess model.Session, depth int) {
-	// Slug doesn't look decent
-	slug := orDefault(sess.Slug, shortID(sess.ID))
-	_ = slug
-	rt := "C"
-	switch sess.Runtime {
-	case "opencode":
-		rt = "O"
-	case "codex":
-		rt = "X"
-	}
 	indent := ""
 	for i := 0; i < depth; i++ {
 		indent += "  "
@@ -86,8 +76,19 @@ func (p *projectsModel) addSessionItem(projectID int64, sess model.Session, dept
 		kind:      "session",
 		projectID: projectID,
 		sessionID: sess.ID,
-		label:     fmt.Sprintf("%s%s[%s] %s  e:%d a:%d", indent, tree, rt, sess.ID, sess.EventCount, sess.AgentCount),
+		label:     buildProjectSessionLabel(indent, tree, sess),
 	})
+}
+
+func buildProjectSessionLabel(indent, tree string, sess model.Session) string {
+	rt := "C"
+	switch sess.Runtime {
+	case "opencode":
+		rt = "O"
+	case "codex":
+		rt = "X"
+	}
+	return fmt.Sprintf("%s%s[%s] %s - %s", indent, tree, rt, formatTime(sess.StartedAt), shortID(sess.ID))
 }
 
 func (p *projectsModel) moveUp() {
@@ -157,6 +158,7 @@ func (p *projectsModel) tick() {
 // Layout: selection indicator + active spinner + trailing space.
 //   - Selected session: green ●
 //   - Active session: animated spinner
+//
 // When raw is true, no ANSI styling is applied so the caller's
 // style (e.g. cursor background) covers the entire line.
 func (p *projectsModel) sessionIcons(item sidebarItem, raw bool) string {
