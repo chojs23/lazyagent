@@ -35,11 +35,8 @@ jobs:
         uses: goreleaser/goreleaser-action@v7
         with:
           distribution: goreleaser
-          version: '~> v2'
+          version: "~> v2"
           args: release --clean
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          HOMEBREW_TAP_OWNER: ${{ env.HOMEBREW_TAP_OWNER }}
-          HOMEBREW_TAP_REPO: ${{ env.HOMEBREW_TAP_REPO }}
-          HOMEBREW_TAP_BRANCH: ${{ env.HOMEBREW_TAP_BRANCH }}
           HOMEBREW_TAP_TOKEN: ${{ env.HOMEBREW_TAP_TOKEN }}
