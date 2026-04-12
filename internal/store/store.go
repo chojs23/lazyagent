@@ -334,7 +334,7 @@ func (q *Queries) ListSessionsForProject(ctx context.Context, projectID int64) (
 			s.event_count, s.agent_count, COALESCE(s.last_activity,0), s.created_at, s.updated_at
 		FROM sessions s LEFT JOIN projects p ON p.id = s.project_id
 		WHERE s.project_id = ? AND (s.parent_session_id IS NULL OR s.parent_session_id = '')
-		ORDER BY COALESCE(s.last_activity, s.started_at) DESC`, projectID)
+		ORDER BY s.started_at DESC, s.created_at DESC, s.id DESC`, projectID)
 	if err != nil {
 		return nil, err
 	}
@@ -350,7 +350,7 @@ func (q *Queries) ListRecentSessions(ctx context.Context, limit int) ([]model.Se
 			s.event_count, s.agent_count, COALESCE(s.last_activity,0), s.created_at, s.updated_at
 		FROM sessions s JOIN projects p ON p.id = s.project_id
 		WHERE (s.parent_session_id IS NULL OR s.parent_session_id = '')
-		ORDER BY COALESCE(s.last_activity, s.started_at) DESC
+		ORDER BY s.started_at DESC, s.created_at DESC, s.id DESC
 		LIMIT ?`, limit)
 	if err != nil {
 		return nil, err

@@ -219,3 +219,65 @@ func TestFilteredSessionTreeEventQueriesStayAligned(t *testing.T) {
 		t.Fatalf("expected child agent match, got %q", events[0].AgentID)
 	}
 }
+
+func TestListRecentSessionsStaysInStartedAtOrder(t *testing.T) {
+	st := testStore(t)
+	ctx := context.Background()
+
+	var projectID int64
+	err := st.WithTx(ctx, func(q *Queries) error {
+		var err error
+		projectID, err = q.CreateProject(ctx, "recent-proj", "Recent", "/tmp/recent", "/tmp/recent-transcript")
+		return err
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	err = st.WithTx(ctx, func(q *Queries) error {
+		if err := q.UpsertSession(ctx, "older", "", projectID, "older", "claude", nil, 1000, ""); err != nil {
+			return err
+		}
+		if err := q.UpsertSession(ctx, "newer", "", projectID, "newer", "claude", nil, 2000, ""); err != nil {
+			return err
+		}
+		if err := q.UpsertAgent(ctx, "agent-older", "older", "", "Older", "", "main", ""); err != nil {
+			return err
+		}
+		if _, err := q.InsertEvent(ctx, model.Event{
+			AgentID:   "agent-older",
+			SessionID: "older",
+			Type:      "message",
+			Timestamp: 5000,
+			Payload:   `{"text":"late activity"}`,
+		}); err != nil {
+			return err
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	sessions, err := st.Read().ListRecentSessions(ctx, 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(sessions) != 2 {
+		t.Fatalf("expected 2 sessions, got %d", len(sessions))
+	}
+	if sessions[0].ID != "newer" || sessions[1].ID != "older" {
+		t.Fatalf("expected started_at order [newer older], got [%s %s]", sessions[0].ID, sessions[1].ID)
+	}
+
+	projectSessions, err := st.Read().ListSessionsForProject(ctx, projectID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(projectSessions) != 2 {
+		t.Fatalf("expected 2 project sessions, got %d", len(projectSessions))
+	}
+	if projectSessions[0].ID != "newer" || projectSessions[1].ID != "older" {
+		t.Fatalf("expected project session order [newer older], got [%s %s]", projectSessions[0].ID, projectSessions[1].ID)
+	}
+}
