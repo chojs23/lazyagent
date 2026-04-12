@@ -128,3 +128,94 @@ func TestClearSessionEventsClearsEntireTree(t *testing.T) {
 		t.Fatalf("child agent_count should be 0 after clear, got %d", child.AgentCount)
 	}
 }
+
+func TestFilteredSessionTreeEventQueriesStayAligned(t *testing.T) {
+	st := testStore(t)
+	ctx := context.Background()
+
+	var projectID int64
+	err := st.WithTx(ctx, func(q *Queries) error {
+		var err error
+		projectID, err = q.CreateProject(ctx, "filter-proj", "Filter", "/tmp/filter", "/tmp/filter-transcript")
+		return err
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	err = st.WithTx(ctx, func(q *Queries) error {
+		if err := q.UpsertSession(ctx, "parent", "", projectID, "parent", "claude", nil, 1000, ""); err != nil {
+			return err
+		}
+		if err := q.UpsertSession(ctx, "child", "parent", projectID, "child", "claude", nil, 2000, ""); err != nil {
+			return err
+		}
+		if err := q.UpsertAgent(ctx, "agent-parent", "parent", "", "Parent", "", "main", ""); err != nil {
+			return err
+		}
+		if err := q.UpsertAgent(ctx, "agent-child", "child", "", "Child", "", "sub", ""); err != nil {
+			return err
+		}
+		if _, err := q.InsertEvent(ctx, model.Event{
+			AgentID:   "agent-parent",
+			SessionID: "parent",
+			Type:      "tool",
+			Subtype:   "Read",
+			Timestamp: 1000,
+			Payload:   `{"text":"match root"}`,
+		}); err != nil {
+			return err
+		}
+		if _, err := q.InsertEvent(ctx, model.Event{
+			AgentID:   "agent-child",
+			SessionID: "child",
+			Type:      "tool",
+			Subtype:   "Read",
+			Timestamp: 2000,
+			Payload:   `{"text":"match child"}`,
+		}); err != nil {
+			return err
+		}
+		if _, err := q.InsertEvent(ctx, model.Event{
+			AgentID:   "agent-child",
+			SessionID: "child",
+			Type:      "message",
+			Subtype:   "AssistantMessage",
+			Timestamp: 3000,
+			Payload:   `{"text":"do not match"}`,
+		}); err != nil {
+			return err
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	filter := model.EventFilter{
+		AgentIDs: []string{"agent-child"},
+		Type:     "tool",
+		Subtype:  "Read",
+		Search:   "match",
+	}
+
+	count, err := st.Read().CountFilteredEventsForSessionTree(ctx, "parent", filter)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	events, err := st.Read().ListEventsForSessionTree(ctx, "parent", filter)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if count != len(events) {
+		t.Fatalf("filtered tree count drifted from list query: count=%d list=%d", count, len(events))
+	}
+	if count != 1 {
+		t.Fatalf("expected exactly one matching tree event, got %d", count)
+	}
+	if events[0].AgentID != "agent-child" {
+		t.Fatalf("expected child agent match, got %q", events[0].AgentID)
+	}
+}
