@@ -387,6 +387,17 @@ func (q *Queries) UpdateSessionProject(ctx context.Context, id string, projectID
 }
 
 func (q *Queries) DeleteSession(ctx context.Context, id string) error {
+	// Delete child sessions first to satisfy the parent_session_id FK constraint.
+	children, err := q.listChildSessionIDs(ctx, id)
+	if err != nil {
+		return err
+	}
+	for _, childID := range children {
+		if err := q.DeleteSession(ctx, childID); err != nil {
+			return err
+		}
+	}
+
 	if _, err := q.db.ExecContext(ctx, `DELETE FROM events WHERE session_id = ?`, id); err != nil {
 		return err
 	}
@@ -399,8 +410,25 @@ func (q *Queries) DeleteSession(ctx context.Context, id string) error {
 	if _, err := q.db.ExecContext(ctx, `DELETE FROM pending_agent_queue WHERE session_id = ?`, id); err != nil {
 		return err
 	}
-	_, err := q.db.ExecContext(ctx, `DELETE FROM sessions WHERE id = ?`, id)
+	_, err = q.db.ExecContext(ctx, `DELETE FROM sessions WHERE id = ?`, id)
 	return err
+}
+
+func (q *Queries) listChildSessionIDs(ctx context.Context, parentID string) ([]string, error) {
+	rows, err := q.db.QueryContext(ctx, `SELECT id FROM sessions WHERE parent_session_id = ?`, parentID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var ids []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		ids = append(ids, id)
+	}
+	return ids, rows.Err()
 }
 
 func (q *Queries) ClearSessionEvents(ctx context.Context, id string) error {
