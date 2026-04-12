@@ -23,7 +23,8 @@ builds:
         -X github.com/chojs23/lazyagent/internal/version.BuildDate={{ .Date }}
 
 archives:
-  - ids:
+  - id: lazyagent
+    ids:
       - lazyagent
     formats:
       - tar.gz
