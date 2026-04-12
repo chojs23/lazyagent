@@ -235,6 +235,9 @@ func IngestOpenCodeEvent(ctx context.Context, st *store.Store, payload map[strin
 		// - title on session.updated: OpenCode may replace a placeholder title
 		//   (e.g. "New session - <timestamp>") with the real title after the
 		//   first user prompt is submitted
+		// - agent_name on message.updated: OpenCode includes the agent name
+		//   (e.g. "Main agent") on assistant messages, which is
+		//   the actual agent the user selected rather than the generic "main"
 		// - "main" default: only for new root sessions on SessionStart
 		// All other events pass empty so nullIfEmpty + COALESCE in UpsertAgent
 		// preserves the previously stored name. This prevents tool output
@@ -255,6 +258,10 @@ func IngestOpenCodeEvent(ctx context.Context, st *store.Store, payload map[strin
 			// (derived from the user's first prompt) is stored as the
 			// session slug for sidebar display instead.
 			agentName = title
+		} else if parsed.Subtype == "MessageUpdated" {
+			if name, _ := parsed.Metadata["agent_name"].(string); name != "" {
+				agentName = name
+			}
 		}
 		if err := q.UpsertAgent(ctx, rootAgentID, parsed.SessionID, "", agentName, parsed.SubAgentDescription, "", ""); err != nil {
 			return err
