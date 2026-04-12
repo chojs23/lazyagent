@@ -451,13 +451,25 @@ func (q *Queries) listChildSessionIDs(ctx context.Context, parentID string) ([]s
 }
 
 func (q *Queries) ClearSessionEvents(ctx context.Context, id string) error {
-	if _, err := q.db.ExecContext(ctx, `DELETE FROM events WHERE session_id = ?`, id); err != nil {
+	// Use a recursive CTE to clear events and agents for the entire session
+	// tree, matching the recursive scope used by ListEventsForSessionTree and
+	// ListAgentsForSessionTree. Without this, child-session data would remain
+	// visible in the TUI after clearing the parent.
+	const treeCTE = `WITH RECURSIVE session_tree(id) AS (
+		SELECT ?1
+		UNION ALL
+		SELECT s.id FROM sessions s
+		JOIN session_tree st ON s.parent_session_id = st.id
+	) `
+
+	if _, err := q.db.ExecContext(ctx, treeCTE+`DELETE FROM events WHERE session_id IN (SELECT id FROM session_tree)`, id); err != nil {
 		return err
 	}
-	if _, err := q.db.ExecContext(ctx, `DELETE FROM agents WHERE session_id = ?`, id); err != nil {
+	if _, err := q.db.ExecContext(ctx, treeCTE+`DELETE FROM agents WHERE session_id IN (SELECT id FROM session_tree)`, id); err != nil {
 		return err
 	}
-	_, err := q.db.ExecContext(ctx, `UPDATE sessions SET event_count=0, agent_count=0, last_activity=NULL, updated_at=? WHERE id=?`, nowMillis(), id)
+	now := nowMillis()
+	_, err := q.db.ExecContext(ctx, treeCTE+`UPDATE sessions SET event_count=0, agent_count=0, last_activity=NULL, updated_at=? WHERE id IN (SELECT id FROM session_tree)`, id, now)
 	return err
 }
 
