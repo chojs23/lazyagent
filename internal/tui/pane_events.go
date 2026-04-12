@@ -288,7 +288,7 @@ func eventBrief(ev model.Event) string {
 	case "Stop":
 		return truncate(firstLine(getStr(p, "last_assistant_message")), 80)
 	case "SubagentStop":
-		return truncate(getStr(p, "agent_type"), 80)
+		return truncate(firstLine(getStr(p, "last_assistant_message")), 80)
 	case "Notification":
 		return truncate(pick(getStr(p, "message"), getStr(p, "permission")), 80)
 
