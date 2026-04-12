@@ -139,7 +139,9 @@ func initClaude() error {
 
 	var settings map[string]any
 	if data, err := os.ReadFile(settingsPath); err == nil {
-		json.Unmarshal(data, &settings)
+		if err := json.Unmarshal(data, &settings); err != nil {
+			return fmt.Errorf("parse %s: %w", settingsPath, err)
+		}
 	}
 	if settings == nil {
 		settings = map[string]any{}
