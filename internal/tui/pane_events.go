@@ -190,18 +190,21 @@ func (e *eventsModel) renderEventLine(ev model.Event, index int, selected bool, 
 // isBriefHighlighted returns true for events whose brief text should be
 // rendered in white (user messages and AI text responses) instead of dim gray.
 func isBriefHighlighted(ev model.Event) bool {
-	if ev.Subtype == "UserPromptSubmit" {
+	switch ev.Subtype {
+	case "UserPromptSubmit":
 		return true
-	}
-	if ev.Subtype != "PartUpdated" {
+	case "Stop", "SubagentStop":
+		return true
+	case "PartUpdated":
+		var p map[string]any
+		if err := json.Unmarshal([]byte(ev.Payload), &p); err != nil {
+			return false
+		}
+		pt := getStr(p, "part_type")
+		return pt == "text" || pt == "reasoning"
+	default:
 		return false
 	}
-	var p map[string]any
-	if err := json.Unmarshal([]byte(ev.Payload), &p); err != nil {
-		return false
-	}
-	pt := getStr(p, "part_type")
-	return pt == "text" || pt == "reasoning"
 }
 
 func eventBrief(ev model.Event) string {
