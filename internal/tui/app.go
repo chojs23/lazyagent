@@ -33,6 +33,12 @@ type dataMsg struct {
 	err      error
 }
 
+type moreEventsMsg struct {
+	events []model.Event
+	offset int
+	err    error
+}
+
 type tickMsg time.Time
 type spinnerTickMsg time.Time
 
@@ -109,6 +115,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.lastError = nil
 		m.applyData(msg)
+		return m, nil
+
+	case moreEventsMsg:
+		if msg.err == nil && len(msg.events) > 0 {
+			m.events.prependEvents(msg.events, msg.offset)
+			m.syncDetailFromEvent()
+		}
 		return m, nil
 
 	case tickMsg:
@@ -346,6 +359,9 @@ func (m Model) updateEvents(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	m.lastKey = k
+	if m.events.needsOlder() {
+		return m, m.loadOlderEventsCmd()
+	}
 	return m, nil
 }
 
@@ -385,7 +401,8 @@ func (m *Model) applyData(d dataMsg) {
 		m.projects.rebuildItems()
 	}
 
-	m.events.setEvents(d.events, d.rawCount)
+	initialOffset := max(0, d.rawCount-len(d.events))
+	m.events.setEvents(d.events, d.rawCount, initialOffset)
 	m.syncDetailFromEvent()
 
 	agentLabel := "all"
@@ -529,6 +546,9 @@ func (m Model) loadDataCmd() tea.Cmd {
 	agentID := m.agents.selectedAgentID()
 	typeFilter := m.filter.typeValue()
 	search := m.filter.searchQuery
+	// Preserve the number of already-loaded events on refresh so pagination
+	// progress is not lost when the periodic tick reloads data.
+	loadedCount := len(m.events.events)
 
 	return func() tea.Msg {
 		ctx := context.Background()
@@ -563,10 +583,15 @@ func (m Model) loadDataCmd() tea.Cmd {
 				return dataMsg{err: err}
 			}
 
+			// Load from the end so the user sees the latest events first.
+			// On refresh, preserve the number of already-loaded events.
+			pageLimit := max(eventsPageSize, loadedCount)
+			initialOffset := max(0, rawCount-pageLimit)
 			filter := model.EventFilter{
 				Type:   typeFilter,
 				Search: search,
-				Limit:  5000,
+				Limit:  pageLimit,
+				Offset: initialOffset,
 			}
 			if agentID != "" {
 				filter.AgentIDs = []string{agentID}
@@ -591,6 +616,41 @@ func tickCmd(d time.Duration) tea.Cmd {
 	return tea.Tick(d, func(t time.Time) tea.Msg {
 		return tickMsg(t)
 	})
+}
+
+func (m Model) loadOlderEventsCmd() tea.Cmd {
+	st := m.store
+	sessionID := m.projects.currentSessionID()
+	agentID := m.agents.selectedAgentID()
+	typeFilter := m.filter.typeValue()
+	search := m.filter.searchQuery
+	currentOffset := m.events.loadedOffset
+
+	return func() tea.Msg {
+		if sessionID == "" || currentOffset <= 0 {
+			return moreEventsMsg{}
+		}
+		ctx := context.Background()
+		q := st.Read()
+
+		newOffset := max(0, currentOffset-eventsPageSize)
+		limit := currentOffset - newOffset
+
+		filter := model.EventFilter{
+			Type:   typeFilter,
+			Search: search,
+			Limit:  limit,
+			Offset: newOffset,
+		}
+		if agentID != "" {
+			filter.AgentIDs = []string{agentID}
+		}
+		events, err := q.ListEventsForSessionTree(ctx, sessionID, filter)
+		if err != nil {
+			return moreEventsMsg{err: err}
+		}
+		return moreEventsMsg{events: events, offset: newOffset}
+	}
 }
 
 func spinnerTickCmd() tea.Cmd {
