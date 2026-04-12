@@ -170,6 +170,7 @@ func (s *Store) init(ctx context.Context) error {
 		`ALTER TABLE sessions ADD COLUMN runtime TEXT NOT NULL DEFAULT 'claude'`,
 		`ALTER TABLE sessions ADD COLUMN parent_session_id TEXT REFERENCES sessions(id)`,
 		`ALTER TABLE projects ADD COLUMN directory TEXT`,
+		`ALTER TABLE agents ADD COLUMN status TEXT NOT NULL DEFAULT 'active'`,
 	}
 	for _, m := range migrations {
 		s.db.ExecContext(ctx, m) // ignore errors (column may already exist)
@@ -442,6 +443,50 @@ func (q *Queries) ClearSessionEvents(ctx context.Context, id string) error {
 	return err
 }
 
+// ReapStaleSessions marks active sessions as stopped if they have no recent
+// activity and no active child sessions. This handles cases where the runtime
+// (OpenCode/Claude) was killed without sending a stop event. It also marks
+// the corresponding root agents as stopped.
+func (q *Queries) ReapStaleSessions(ctx context.Context, maxIdleMs int64) (int, error) {
+	cutoff := nowMillis() - maxIdleMs
+	// Find stale active sessions that have no active children.
+	rows, err := q.db.QueryContext(ctx, `
+		SELECT s.id FROM sessions s
+		WHERE s.status = 'active'
+			AND COALESCE(s.last_activity, s.started_at) < ?
+			AND NOT EXISTS (
+				SELECT 1 FROM sessions c
+				WHERE c.parent_session_id = s.id AND c.status = 'active'
+			)`, cutoff)
+	if err != nil {
+		return 0, err
+	}
+	defer rows.Close()
+
+	var ids []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return 0, err
+		}
+		ids = append(ids, id)
+	}
+	if err := rows.Err(); err != nil {
+		return 0, err
+	}
+
+	now := nowMillis()
+	for _, id := range ids {
+		if _, err := q.db.ExecContext(ctx, `UPDATE sessions SET status='stopped', stopped_at=?, updated_at=? WHERE id=?`, now, now, id); err != nil {
+			return 0, err
+		}
+		if _, err := q.db.ExecContext(ctx, `UPDATE agents SET status='stopped', updated_at=? WHERE id=? AND status='active'`, now, id); err != nil {
+			return 0, err
+		}
+	}
+	return len(ids), nil
+}
+
 // ── Agents ──
 
 func (q *Queries) UpsertAgent(ctx context.Context, id, sessionID, parentAgentID, name, description, agentType, transcriptPath string) error {
@@ -471,15 +516,21 @@ func (q *Queries) UpsertAgent(ctx context.Context, id, sessionID, parentAgentID,
 	return err
 }
 
+func (q *Queries) UpdateAgentStatus(ctx context.Context, id, status string) error {
+	_, err := q.db.ExecContext(ctx, `UPDATE agents SET status=?, updated_at=? WHERE id=?`,
+		status, nowMillis(), id)
+	return err
+}
+
 func (q *Queries) GetAgentByID(ctx context.Context, id string) (*model.Agent, error) {
 	row := q.db.QueryRowContext(ctx, `
 		SELECT id, session_id, COALESCE(parent_agent_id,''), COALESCE(name,''), COALESCE(description,''),
-			COALESCE(agent_type,''), COALESCE(agent_class,''), COALESCE(transcript_path,''), COALESCE(metadata,''),
+			COALESCE(agent_type,''), COALESCE(agent_class,''), COALESCE(status,'active'), COALESCE(transcript_path,''), COALESCE(metadata,''),
 			created_at, updated_at
 		FROM agents WHERE id = ?`, id)
 	var a model.Agent
 	err := row.Scan(&a.ID, &a.SessionID, &a.ParentAgentID, &a.Name, &a.Description,
-		&a.AgentType, &a.AgentClass, &a.TranscriptPath, &a.Metadata, &a.CreatedAt, &a.UpdatedAt)
+		&a.AgentType, &a.AgentClass, &a.Status, &a.TranscriptPath, &a.Metadata, &a.CreatedAt, &a.UpdatedAt)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
@@ -492,7 +543,7 @@ func (q *Queries) GetAgentByID(ctx context.Context, id string) (*model.Agent, er
 func (q *Queries) ListAgentsForSession(ctx context.Context, sessionID string) ([]model.Agent, error) {
 	rows, err := q.db.QueryContext(ctx, `
 		SELECT id, session_id, COALESCE(parent_agent_id,''), COALESCE(name,''), COALESCE(description,''),
-			COALESCE(agent_type,''), COALESCE(agent_class,''), COALESCE(transcript_path,''), COALESCE(metadata,''),
+			COALESCE(agent_type,''), COALESCE(agent_class,''), COALESCE(status,'active'), COALESCE(transcript_path,''), COALESCE(metadata,''),
 			created_at, updated_at
 		FROM agents WHERE session_id = ? ORDER BY created_at ASC`, sessionID)
 	if err != nil {
@@ -503,7 +554,7 @@ func (q *Queries) ListAgentsForSession(ctx context.Context, sessionID string) ([
 	for rows.Next() {
 		var a model.Agent
 		if err := rows.Scan(&a.ID, &a.SessionID, &a.ParentAgentID, &a.Name, &a.Description,
-			&a.AgentType, &a.AgentClass, &a.TranscriptPath, &a.Metadata, &a.CreatedAt, &a.UpdatedAt); err != nil {
+			&a.AgentType, &a.AgentClass, &a.Status, &a.TranscriptPath, &a.Metadata, &a.CreatedAt, &a.UpdatedAt); err != nil {
 			return nil, err
 		}
 		out = append(out, a)
@@ -528,7 +579,7 @@ func (q *Queries) ListAgentsForSessionTree(ctx context.Context, sessionID string
 				(SELECT parent FROM session_tree WHERE id = a.session_id), ?1
 			) ELSE COALESCE(a.parent_agent_id,'') END,
 			COALESCE(a.name,''), COALESCE(a.description,''),
-			COALESCE(a.agent_type,''), COALESCE(a.agent_class,''), COALESCE(a.transcript_path,''), COALESCE(a.metadata,''),
+			COALESCE(a.agent_type,''), COALESCE(a.agent_class,''), COALESCE(a.status,'active'), COALESCE(a.transcript_path,''), COALESCE(a.metadata,''),
 			a.created_at, a.updated_at
 		FROM agents a
 		WHERE a.session_id IN (SELECT id FROM session_tree)
@@ -541,7 +592,7 @@ func (q *Queries) ListAgentsForSessionTree(ctx context.Context, sessionID string
 	for rows.Next() {
 		var a model.Agent
 		if err := rows.Scan(&a.ID, &a.SessionID, &a.ParentAgentID, &a.Name, &a.Description,
-			&a.AgentType, &a.AgentClass, &a.TranscriptPath, &a.Metadata, &a.CreatedAt, &a.UpdatedAt); err != nil {
+			&a.AgentType, &a.AgentClass, &a.Status, &a.TranscriptPath, &a.Metadata, &a.CreatedAt, &a.UpdatedAt); err != nil {
 			return nil, err
 		}
 		out = append(out, a)

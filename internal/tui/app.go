@@ -34,6 +34,7 @@ type dataMsg struct {
 }
 
 type tickMsg time.Time
+type spinnerTickMsg time.Time
 
 type Model struct {
 	store           *store.Store
@@ -80,7 +81,7 @@ func newModel(st *store.Store, refreshInterval time.Duration) Model {
 }
 
 func (m Model) Init() tea.Cmd {
-	return tea.Batch(m.loadDataCmd(), tickCmd(m.refreshInterval))
+	return tea.Batch(m.loadDataCmd(), tickCmd(m.refreshInterval), spinnerTickCmd())
 }
 
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -112,6 +113,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case tickMsg:
 		return m, tea.Batch(m.loadDataCmd(), tickCmd(m.refreshInterval))
+
+	case spinnerTickMsg:
+		m.agents.tick()
+		return m, spinnerTickCmd()
 
 	case tea.KeyMsg:
 		return m.handleKey(msg)
@@ -529,6 +534,10 @@ func (m Model) loadDataCmd() tea.Cmd {
 		ctx := context.Background()
 		q := st.Read()
 
+		// Auto-stop sessions that have been idle for over 5 minutes
+		// with no active child sessions. Handles ungraceful shutdowns.
+		q.ReapStaleSessions(ctx, 5*60*1000)
+
 		projects, err := q.ListProjects(ctx)
 		if err != nil {
 			return dataMsg{err: err}
@@ -581,6 +590,12 @@ func (m Model) loadDataCmd() tea.Cmd {
 func tickCmd(d time.Duration) tea.Cmd {
 	return tea.Tick(d, func(t time.Time) tea.Msg {
 		return tickMsg(t)
+	})
+}
+
+func spinnerTickCmd() tea.Cmd {
+	return tea.Tick(100*time.Millisecond, func(t time.Time) tea.Msg {
+		return spinnerTickMsg(t)
 	})
 }
 

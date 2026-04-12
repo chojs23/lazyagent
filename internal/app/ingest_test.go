@@ -594,11 +594,11 @@ func TestIngestOpenCodeEventReactivatesStoppedSession(t *testing.T) {
 	}
 }
 
-func TestIngestOpenCodeAgentNameUpdatedBySessionUpdated(t *testing.T) {
+func TestIngestOpenCodeRootAgentNameStaysMain(t *testing.T) {
 	st := testStore(t)
 	ctx := context.Background()
 
-	// 1. Create session with placeholder title
+	// 1. Create root session with placeholder title -> agent name = "main"
 	_, err := IngestOpenCodeEvent(ctx, st, map[string]any{
 		"event":       "session.created",
 		"session_id":  "root-1",
@@ -614,11 +614,11 @@ func TestIngestOpenCodeAgentNameUpdatedBySessionUpdated(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if agent.Name != "New session - 2026-04-12T05:17:16.808Z" {
-		t.Fatalf("initial name=%q", agent.Name)
+	if agent.Name != "main" {
+		t.Fatalf("initial name=%q, want main", agent.Name)
 	}
 
-	// 2. session.updated with the real title should overwrite the placeholder
+	// 2. session.updated should NOT overwrite root agent name
 	_, err = IngestOpenCodeEvent(ctx, st, map[string]any{
 		"event":      "session.updated",
 		"session_id": "root-1",
@@ -633,8 +633,48 @@ func TestIngestOpenCodeAgentNameUpdatedBySessionUpdated(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if agent.Name != "Exhaustive bug hunt across codebase" {
-		t.Fatalf("after session.updated: got name=%q, want real title", agent.Name)
+	if agent.Name != "main" {
+		t.Fatalf("after session.updated: got name=%q, want main (root agent name should not change)", agent.Name)
+	}
+}
+
+func TestIngestOpenCodeChildAgentNameUpdatedBySessionUpdated(t *testing.T) {
+	st := testStore(t)
+	ctx := context.Background()
+
+	// 1. Create parent
+	IngestOpenCodeEvent(ctx, st, map[string]any{
+		"event": "session.created", "session_id": "parent-1",
+		"project_dir": "/home/user/my-app", "title": "main",
+		"timestamp": float64(1712700000000),
+	}, "")
+
+	// 2. Create child with placeholder title
+	_, err := IngestOpenCodeEvent(ctx, st, map[string]any{
+		"event": "session.created", "session_id": "child-1",
+		"parent_session_id": "parent-1", "project_dir": "/home/user/my-app",
+		"title": "New session - placeholder", "timestamp": float64(1712700001000),
+	}, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// 3. session.updated with real title should update child agent name
+	_, err = IngestOpenCodeEvent(ctx, st, map[string]any{
+		"event": "session.updated", "session_id": "child-1",
+		"parent_session_id": "parent-1",
+		"title": "Map affected modules", "timestamp": float64(1712700002000),
+	}, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	agent, err := st.Read().GetAgentByID(ctx, "child-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if agent.Name != "Map affected modules" {
+		t.Fatalf("after session.updated: got name=%q, want 'Map affected modules'", agent.Name)
 	}
 }
 
@@ -642,7 +682,7 @@ func TestIngestOpenCodeAgentNameNotOverwrittenByToolTitle(t *testing.T) {
 	st := testStore(t)
 	ctx := context.Background()
 
-	// 1. Create root session with title "Greeting"
+	// 1. Create root session with title — agent name should be "main"
 	_, err := IngestOpenCodeEvent(ctx, st, map[string]any{
 		"event":       "session.created",
 		"session_id":  "root-1",
@@ -658,8 +698,8 @@ func TestIngestOpenCodeAgentNameNotOverwrittenByToolTitle(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if agent.Name != "Greeting" {
-		t.Fatalf("after session.created: got name=%q, want Greeting", agent.Name)
+	if agent.Name != "main" {
+		t.Fatalf("after session.created: got name=%q, want main", agent.Name)
 	}
 
 	// 2. PostToolUse with tool output title should NOT overwrite agent name
@@ -678,8 +718,8 @@ func TestIngestOpenCodeAgentNameNotOverwrittenByToolTitle(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if agent.Name != "Greeting" {
-		t.Fatalf("after tool events: got name=%q, want Greeting", agent.Name)
+	if agent.Name != "main" {
+		t.Fatalf("after tool events: got name=%q, want main", agent.Name)
 	}
 }
 

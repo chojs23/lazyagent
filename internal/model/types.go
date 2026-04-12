@@ -65,6 +65,7 @@ type Agent struct {
 	Description    string
 	AgentType      string
 	AgentClass     string
+	Status         string
 	TranscriptPath string
 	Metadata       string
 	CreatedAt      int64

@@ -6,6 +6,8 @@ import (
 	"github.com/chojs23/lazyagent/internal/model"
 )
 
+var spinnerFrames = []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"}
+
 type agentsModel struct {
 	agents        []model.Agent
 	cursor        int
@@ -13,6 +15,7 @@ type agentsModel struct {
 	hScroll       int
 	selectedAgent string
 	height        int
+	spinnerFrame  int
 }
 
 func newAgents() agentsModel {
@@ -56,6 +59,10 @@ func (a *agentsModel) goBottom() {
 	}
 }
 
+func (a *agentsModel) tick() {
+	a.spinnerFrame = (a.spinnerFrame + 1) % len(spinnerFrames)
+}
+
 func (a *agentsModel) enter() {
 	if a.cursor < len(a.agents) {
 		ag := a.agents[a.cursor]
@@ -88,6 +95,11 @@ func (a *agentsModel) view(width, height int, focused bool) string {
 		name := orDefault(ag.Name, shortID(ag.ID))
 		if ag.AgentType != "" {
 			name += " (" + ag.AgentType + ")"
+		}
+		// Show animated spinner for active subagents
+		if ag.ParentAgentID != "" && ag.Status == "active" {
+			frame := spinnerFrames[a.spinnerFrame%len(spinnerFrames)]
+			name = frame + " " + name
 		}
 		tree := ""
 		if ag.ParentAgentID != "" {

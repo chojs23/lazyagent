@@ -156,6 +156,13 @@ func IngestClaudeEvent(ctx context.Context, st *store.Store, payload map[string]
 			}
 		}
 
+		// Mark subagent as stopped when it finishes
+		if parsed.Subtype == "SubagentStop" && agentID != rootAgentID {
+			if err := q.UpdateAgentStatus(ctx, agentID, "stopped"); err != nil {
+				return err
+			}
+		}
+
 		raw, err := json.Marshal(parsed.Raw)
 		if err != nil {
 			return fmt.Errorf("encode payload: %w", err)
@@ -237,12 +244,16 @@ func IngestOpenCodeEvent(ctx context.Context, st *store.Store, payload map[strin
 		if parsed.SubAgentName != "" {
 			agentName = parsed.SubAgentName
 		} else if parsed.Subtype == "SessionStart" {
-			if title != "" {
-				agentName = title
-			} else if parentSessionID == "" {
+			if parentSessionID == "" {
 				agentName = "main"
+			} else if title != "" {
+				agentName = title
 			}
-		} else if parsed.Subtype == "SessionUpdated" && title != "" {
+		} else if parsed.Subtype == "SessionUpdated" && title != "" && parentSessionID != "" {
+			// Only update agent name from title for child sessions.
+			// Root sessions keep "main" as their agent name; their title
+			// (derived from the user's first prompt) is stored as the
+			// session slug for sidebar display instead.
 			agentName = title
 		}
 		if err := q.UpsertAgent(ctx, rootAgentID, parsed.SessionID, "", agentName, parsed.SubAgentDescription, "", ""); err != nil {
@@ -285,6 +296,10 @@ func IngestOpenCodeEvent(ctx context.Context, st *store.Store, payload map[strin
 			if err := q.UpdateSessionStatus(ctx, parsed.SessionID, "stopped"); err != nil {
 				return err
 			}
+			// Mirror session stop to its root agent
+			if err := q.UpdateAgentStatus(ctx, parsed.SessionID, "stopped"); err != nil {
+				return err
+			}
 			if parentSessionID != "" {
 				if err := cascadeParentStop(ctx, q, parentSessionID); err != nil {
 					return err
@@ -292,6 +307,10 @@ func IngestOpenCodeEvent(ctx context.Context, st *store.Store, payload map[strin
 			}
 		} else if existingSession != nil && existingSession.Status == "stopped" && isOpenCodeResumeSignal(parsed) {
 			if err := q.UpdateSessionStatus(ctx, parsed.SessionID, "active"); err != nil {
+				return err
+			}
+			// Mirror session reactivation to its root agent
+			if err := q.UpdateAgentStatus(ctx, parsed.SessionID, "active"); err != nil {
 				return err
 			}
 		}
@@ -338,6 +357,9 @@ func cascadeParentStop(ctx context.Context, q *store.Queries, sessionID string) 
 		return err
 	}
 	if err := q.UpdateSessionStatus(ctx, sessionID, "stopped"); err != nil {
+		return err
+	}
+	if err := q.UpdateAgentStatus(ctx, sessionID, "stopped"); err != nil {
 		return err
 	}
 	session, err := q.GetSessionByID(ctx, sessionID)
