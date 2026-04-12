@@ -305,6 +305,7 @@ func (q *Queries) UpsertSession(ctx context.Context, id string, parentSessionID 
 		INSERT INTO sessions (id, parent_session_id, project_id, slug, status, runtime, started_at, transcript_path, metadata, created_at, updated_at)
 		VALUES (?,?,?,?,'active',?,?,?,?,?,?)
 		ON CONFLICT(id) DO UPDATE SET
+			parent_session_id = COALESCE(excluded.parent_session_id, sessions.parent_session_id),
 			slug = COALESCE(excluded.slug, sessions.slug),
 			runtime = excluded.runtime,
 			transcript_path = COALESCE(excluded.transcript_path, sessions.transcript_path),

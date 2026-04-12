@@ -290,7 +290,7 @@ func TestIngestOpenCodeSessionStatusIdleDeferredWithChildren(t *testing.T) {
 	IngestOpenCodeEvent(ctx, st, map[string]any{
 		"event": "session.status", "session_id": "child-1",
 		"parent_session_id": "parent-1",
-		"status_type": "idle", "timestamp": float64(1712700003000),
+		"status_type":       "idle", "timestamp": float64(1712700003000),
 	}, "")
 
 	child, _ := st.Read().GetSessionByID(ctx, "child-1")
@@ -663,7 +663,7 @@ func TestIngestOpenCodeChildAgentNameUpdatedBySessionUpdated(t *testing.T) {
 	_, err = IngestOpenCodeEvent(ctx, st, map[string]any{
 		"event": "session.updated", "session_id": "child-1",
 		"parent_session_id": "parent-1",
-		"title": "Map affected modules", "timestamp": float64(1712700002000),
+		"title":             "Map affected modules", "timestamp": float64(1712700002000),
 	}, "")
 	if err != nil {
 		t.Fatal(err)
@@ -720,6 +720,72 @@ func TestIngestOpenCodeAgentNameNotOverwrittenByToolTitle(t *testing.T) {
 	}
 	if agent.Name != "main" {
 		t.Fatalf("after tool events: got name=%q, want main", agent.Name)
+	}
+}
+
+func TestIngestOpenCodeAgentNameFromMessageUpdated(t *testing.T) {
+	st := testStore(t)
+	ctx := context.Background()
+
+	// 1. Create root session — agent name defaults to "main"
+	_, err := IngestOpenCodeEvent(ctx, st, map[string]any{
+		"event":       "session.created",
+		"session_id":  "root-1",
+		"project_dir": "/home/user/my-app",
+		"title":       "New session - 2026-04-12",
+		"timestamp":   float64(1712700000000),
+	}, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	agent, err := st.Read().GetAgentByID(ctx, "root-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if agent.Name != "main" {
+		t.Fatalf("initial name=%q, want main", agent.Name)
+	}
+
+	// 2. message.updated with agent_name should update root agent name
+	_, err = IngestOpenCodeEvent(ctx, st, map[string]any{
+		"event":        "message.updated",
+		"session_id":   "root-1",
+		"message_role": "assistant",
+		"message_id":   "msg-1",
+		"agent_name":   "User main agent",
+		"timestamp":    float64(1712700001000),
+	}, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	agent, err = st.Read().GetAgentByID(ctx, "root-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if agent.Name != "User main agent" {
+		t.Fatalf("after message.updated: got name=%q, want 'User main agent'", agent.Name)
+	}
+
+	// 3. user message.updated (no agent_name) should NOT overwrite
+	_, err = IngestOpenCodeEvent(ctx, st, map[string]any{
+		"event":        "message.updated",
+		"session_id":   "root-1",
+		"message_role": "user",
+		"message_id":   "msg-2",
+		"timestamp":    float64(1712700002000),
+	}, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	agent, err = st.Read().GetAgentByID(ctx, "root-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if agent.Name != "User main agent" {
+		t.Fatalf("after user message: got name=%q, want 'User main agent'", agent.Name)
 	}
 }
 
@@ -910,5 +976,105 @@ func TestLoadSessionSlug(t *testing.T) {
 	slug := loadSessionSlug(path)
 	if slug != "my-session-slug" {
 		t.Fatalf("got slug=%q", slug)
+	}
+}
+
+func TestUpsertSessionParentIDUpdatedOnConflict(t *testing.T) {
+	st := testStore(t)
+	ctx := context.Background()
+
+	// 1. Child session arrives first without parent info.
+	_, err := IngestOpenCodeEvent(ctx, st, map[string]any{
+		"event":       "session.created",
+		"session_id":  "child-1",
+		"project_dir": "/home/user/my-app",
+		"title":       "worker",
+		"timestamp":   float64(1712700000000),
+	}, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	session, err := st.Read().GetSessionByID(ctx, "child-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if session.ParentSessionID != "" {
+		t.Fatalf("expected empty parent, got %q", session.ParentSessionID)
+	}
+
+	// 2. Later event for the same session arrives WITH parent_session_id.
+	//    Create parent first so the FK constraint is satisfied.
+	IngestOpenCodeEvent(ctx, st, map[string]any{
+		"event":       "session.created",
+		"session_id":  "parent-1",
+		"project_dir": "/home/user/my-app",
+		"title":       "main",
+		"timestamp":   float64(1712700001000),
+	}, "")
+
+	_, err = IngestOpenCodeEvent(ctx, st, map[string]any{
+		"event":             "session.updated",
+		"session_id":        "child-1",
+		"parent_session_id": "parent-1",
+		"project_dir":       "/home/user/my-app",
+		"title":             "worker",
+		"timestamp":         float64(1712700002000),
+	}, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// parent_session_id must now be set.
+	session, err = st.Read().GetSessionByID(ctx, "child-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if session.ParentSessionID != "parent-1" {
+		t.Fatalf("parent_session_id=%q, want parent-1", session.ParentSessionID)
+	}
+}
+
+func TestUpsertSessionParentIDPreservedWhenNewEventOmitsIt(t *testing.T) {
+	st := testStore(t)
+	ctx := context.Background()
+
+	// 1. Create parent, then child with parent_session_id.
+	IngestOpenCodeEvent(ctx, st, map[string]any{
+		"event":       "session.created",
+		"session_id":  "parent-1",
+		"project_dir": "/home/user/my-app",
+		"title":       "main",
+		"timestamp":   float64(1712700000000),
+	}, "")
+
+	IngestOpenCodeEvent(ctx, st, map[string]any{
+		"event":             "session.created",
+		"session_id":        "child-1",
+		"parent_session_id": "parent-1",
+		"project_dir":       "/home/user/my-app",
+		"title":             "worker",
+		"timestamp":         float64(1712700001000),
+	}, "")
+
+	// 2. A follow-up event for the child WITHOUT parent_session_id.
+	_, err := IngestOpenCodeEvent(ctx, st, map[string]any{
+		"event":       "session.updated",
+		"session_id":  "child-1",
+		"project_dir": "/home/user/my-app",
+		"title":       "worker updated",
+		"timestamp":   float64(1712700002000),
+	}, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// parent_session_id must still be set (not wiped to NULL).
+	session, err := st.Read().GetSessionByID(ctx, "child-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if session.ParentSessionID != "parent-1" {
+		t.Fatalf("parent_session_id=%q, want parent-1 (should not be wiped)", session.ParentSessionID)
 	}
 }
