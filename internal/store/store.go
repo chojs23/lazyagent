@@ -179,6 +179,23 @@ func (s *Store) init(ctx context.Context) error {
 	// idempotent index creation for new columns
 	s.db.ExecContext(ctx, `CREATE UNIQUE INDEX IF NOT EXISTS idx_projects_directory ON projects(directory) WHERE directory IS NOT NULL`)
 
+	// Backfill: mark agents as stopped when evidence of completion exists.
+	// This covers agents created before the status column was added.
+	// 1) Claude subagents with a SubagentStop event
+	s.db.ExecContext(ctx, `
+		UPDATE agents SET status = 'stopped'
+		WHERE status = 'active' AND id IN (
+			SELECT DISTINCT agent_id FROM events WHERE subtype = 'SubagentStop'
+		)`)
+	// 2) OpenCode agents whose session is already stopped
+	s.db.ExecContext(ctx, `
+		UPDATE agents SET status = 'stopped'
+		WHERE status = 'active' AND id IN (
+			SELECT a.id FROM agents a
+			JOIN sessions s ON a.id = s.id
+			WHERE s.status = 'stopped'
+		)`)
+
 	return nil
 }
 
