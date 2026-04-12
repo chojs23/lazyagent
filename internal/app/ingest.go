@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/chojs23/lazyagent/internal/claude"
+	"github.com/chojs23/lazyagent/internal/codex"
 	"github.com/chojs23/lazyagent/internal/model"
 	"github.com/chojs23/lazyagent/internal/opencode"
 	"github.com/chojs23/lazyagent/internal/store"
@@ -391,6 +392,88 @@ func isOpenCodeResumeSignal(parsed model.ParsedEvent) bool {
 	default:
 		return false
 	}
+}
+
+func IngestCodexEvent(ctx context.Context, st *store.Store, payload map[string]any) (IngestResult, error) {
+	parsed := codex.ParseRawEvent(payload)
+	result := IngestResult{SessionID: parsed.SessionID}
+
+	err := st.WithTx(ctx, func(q *store.Queries) error {
+		existingSession, err := q.GetSessionByID(ctx, parsed.SessionID)
+		if err != nil {
+			return err
+		}
+
+		var projectID int64
+		if existingSession != nil {
+			projectID = existingSession.ProjectID
+		} else {
+			cwd := str(payload["cwd"])
+			id, err := resolveProject(ctx, q, "", parsed.TranscriptPath, cwd)
+			if err != nil {
+				return err
+			}
+			projectID = id
+		}
+
+		if err := q.UpsertSession(ctx, parsed.SessionID, "", projectID, "", "codex", parsed.Metadata, parsed.Timestamp, parsed.TranscriptPath); err != nil {
+			return err
+		}
+
+		rootAgentID := parsed.SessionID
+		if err := q.UpsertAgent(ctx, rootAgentID, parsed.SessionID, "", "codex", "", "", ""); err != nil {
+			return err
+		}
+		// Codex agents should not inherit the default 'claude-code' agent_class.
+		if err := q.UpdateAgentClass(ctx, rootAgentID, "codex"); err != nil {
+			return err
+		}
+
+		// Session lifecycle: Option B
+		// Stop marks the session stopped; any subsequent activity reactivates it.
+		// This mirrors the OpenCode pattern and avoids needing a stale-session
+		// cleanup mechanism.
+		if parsed.Subtype == "Stop" {
+			if err := q.UpdateSessionStatus(ctx, parsed.SessionID, "stopped"); err != nil {
+				return err
+			}
+			if err := q.UpdateAgentStatus(ctx, rootAgentID, "stopped"); err != nil {
+				return err
+			}
+		} else if existingSession != nil && existingSession.Status == "stopped" {
+			if err := q.UpdateSessionStatus(ctx, parsed.SessionID, "active"); err != nil {
+				return err
+			}
+			if err := q.UpdateAgentStatus(ctx, rootAgentID, "active"); err != nil {
+				return err
+			}
+		}
+
+		raw, err := json.Marshal(parsed.Raw)
+		if err != nil {
+			return fmt.Errorf("encode payload: %w", err)
+		}
+
+		eventID, err := q.InsertEvent(ctx, model.Event{
+			AgentID:   rootAgentID,
+			SessionID: parsed.SessionID,
+			Type:      parsed.Type,
+			Subtype:   parsed.Subtype,
+			ToolName:  parsed.ToolName,
+			ToolUseID: parsed.ToolUseID,
+			Timestamp: parsed.Timestamp,
+			Payload:   string(raw),
+		})
+		if err != nil {
+			return err
+		}
+
+		result.EventID = eventID
+		result.ProjectID = projectID
+		return nil
+	})
+
+	return result, err
 }
 
 func resolveProject(ctx context.Context, q *store.Queries, slugOverride, transcriptPath, cwd string) (int64, error) {
