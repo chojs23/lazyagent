@@ -16,6 +16,7 @@ import (
 	"github.com/chojs23/lazyagent/internal/config"
 	"github.com/chojs23/lazyagent/internal/store"
 	"github.com/chojs23/lazyagent/internal/tui"
+	"github.com/chojs23/lazyagent/internal/version"
 )
 
 //go:embed opencode_plugin.ts
@@ -29,39 +30,61 @@ func main() {
 }
 
 func run() error {
-	cfg, err := config.Load()
-	if err != nil {
-		return err
-	}
-
-	st, err := store.Open(cfg.DBPath)
-	if err != nil {
-		return err
-	}
-	defer st.Close()
-
 	cmd := "tui"
 	if len(os.Args) >= 2 {
 		cmd = os.Args[1]
 	}
 
 	switch cmd {
-	case "ingest":
-		return runIngest(st, os.Args[2:])
+	case "version":
+		return runVersion(os.Args[2:])
+	case "--version", "-version", "-v":
+		return runVersion(nil)
 	case "init":
 		if len(os.Args) < 3 {
 			fmt.Println("Usage: lazyagent init <claude|opencode|codex>")
 			return nil
 		}
 		return runInit(os.Args[2])
+	case "ingest":
+		_, st, err := openStore()
+		if err != nil {
+			return err
+		}
+		defer st.Close()
+		return runIngest(st, os.Args[2:])
 	case "health":
+		cfg, st, err := openStore()
+		if err != nil {
+			return err
+		}
+		defer st.Close()
 		return runHealth(st, cfg.DBPath)
 	case "tui":
+		cfg, st, err := openStore()
+		if err != nil {
+			return err
+		}
+		defer st.Close()
 		return tui.Run(st, cfg.RefreshInterval)
 	default:
 		printUsage()
 		return nil
 	}
+}
+
+func openStore() (config.Config, *store.Store, error) {
+	cfg, err := config.Load()
+	if err != nil {
+		return config.Config{}, nil, err
+	}
+
+	st, err := store.Open(cfg.DBPath)
+	if err != nil {
+		return config.Config{}, nil, err
+	}
+
+	return cfg, st, nil
 }
 
 func runIngest(st *store.Store, args []string) error {
@@ -109,6 +132,29 @@ func runHealth(st *store.Store, dbPath string) error {
 		return err
 	}
 	return writeJSON(map[string]any{"ok": true, "db_path": dbPath})
+}
+
+func runVersion(args []string) error {
+	fs := flag.NewFlagSet("version", flag.ContinueOnError)
+	jsonOutput := fs.Bool("json", false, "emit version metadata as JSON")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+
+	info := version.Current()
+	if *jsonOutput {
+		return writeJSON(info)
+	}
+
+	fmt.Printf("lazyagent %s\n", info.Version)
+	if info.Commit != "" {
+		fmt.Printf("commit: %s\n", info.Commit)
+	}
+	if info.BuildDate != "" {
+		fmt.Printf("built: %s\n", info.BuildDate)
+	}
+
+	return nil
 }
 
 func writeJSON(v any) error {
@@ -348,4 +394,5 @@ func printUsage() {
 	fmt.Println("         --runtime codex --quiet                 Ingest Codex hook (silent)")
 	fmt.Println("  health                                         Check SQLite access")
 	fmt.Println("  tui                                            Open the terminal UI")
+	fmt.Println("  version [--json]                               Show build and release metadata")
 }
