@@ -129,6 +129,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case spinnerTickMsg:
 		m.agents.tick()
+		m.projects.tick()
 		return m, spinnerTickCmd()
 
 	case tea.KeyMsg:

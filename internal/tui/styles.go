@@ -65,23 +65,6 @@ func subtypeColor(subtype string) color.Color {
 	}
 }
 
-func statusIcon(status string) string {
-	switch status {
-	case "active":
-		return lipgloss.NewStyle().Foreground(colorGreen).Render("●")
-	default:
-		return lipgloss.NewStyle().Foreground(colorGray).Render("○")
-	}
-}
-
-func rawStatusIcon(status string) string {
-	switch status {
-	case "active":
-		return "●"
-	default:
-		return "○"
-	}
-}
 
 func agentColor(index int) color.Color {
 	if index < 0 {

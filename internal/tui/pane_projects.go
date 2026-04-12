@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"strings"
 
+	"charm.land/lipgloss/v2"
+
 	"github.com/chojs23/lazyagent/internal/model"
 )
 
@@ -16,6 +18,7 @@ type projectsModel struct {
 	hScroll         int
 	selectedSession string
 	expandedProjs   map[int64]bool
+	spinnerFrame    int
 	height          int
 }
 
@@ -143,6 +146,36 @@ func (p *projectsModel) currentItem() *sidebarItem {
 	return nil
 }
 
+func (p *projectsModel) tick() {
+	p.spinnerFrame = (p.spinnerFrame + 1) % len(spinnerFrames)
+}
+
+// sessionIcons returns the prefix icons for a session line.
+// Layout: selection indicator + active spinner + trailing space.
+//   - Selected session: green ●
+//   - Active session: animated spinner
+// When raw is true, no ANSI styling is applied so the caller's
+// style (e.g. cursor background) covers the entire line.
+func (p *projectsModel) sessionIcons(item sidebarItem, raw bool) string {
+	sel := " "
+	if item.sessionID == p.selectedSession {
+		if raw {
+			sel = "*"
+		} else {
+			sel = lipgloss.NewStyle().Foreground(colorGreen).Render("*")
+		}
+	}
+	active := " "
+	if p.sessionStatus(item.sessionID) == "active" {
+		if raw {
+			active = spinnerFrames[p.spinnerFrame]
+		} else {
+			active = lipgloss.NewStyle().Foreground(colorCyan).Render(spinnerFrames[p.spinnerFrame])
+		}
+	}
+	return sel + " " + active + " "
+}
+
 func (p *projectsModel) sessionStatus(id string) string {
 	for _, sess := range p.sessions {
 		if sess.ID == id {
@@ -182,12 +215,10 @@ func (p *projectsModel) view(width, height int, focused bool) string {
 				}
 				line = style.Render("  " + arrow + " " + item.label)
 			case "session":
-				icon := rawStatusIcon(p.sessionStatus(item.sessionID))
-				line = style.Render("    " + icon + " " + item.label)
+				line = style.Render("    " + p.sessionIcons(item, true) + item.label)
 			}
 		case isSelected:
-			icon := rawStatusIcon(p.sessionStatus(item.sessionID))
-			line = selectedStyle.Render(prefix + "  " + icon + " " + item.label)
+			line = selectedStyle.Render(prefix + "  " + p.sessionIcons(item, true) + item.label)
 		default:
 			switch item.kind {
 			case "project":
@@ -197,8 +228,7 @@ func (p *projectsModel) view(width, height int, focused bool) string {
 				}
 				line = prefix + arrow + " " + item.label
 			case "session":
-				icon := statusIcon(p.sessionStatus(item.sessionID))
-				line = prefix + "  " + icon + " " + item.label
+				line = prefix + "  " + p.sessionIcons(item, false) + item.label
 			}
 		}
 		lines = append(lines, line)
