@@ -41,6 +41,8 @@ const FORWARDED_EVENTS = new Set([
   "todo.updated",
   "command.executed",
   "file.edited",
+  "message.updated",
+  "message.part.updated",
 ]);
 
 function extractSessionID(event: Record<string, unknown>): string {
@@ -150,6 +152,81 @@ function extractEventData(
       return {
         file: (props.file as string) || "",
       };
+
+    case "message.updated": {
+      // info is a User or Assistant message (discriminated by role)
+      const role = (info.role as string) || "";
+      const result: Record<string, unknown> = {
+        message_role: role,
+        message_id: (info.id as string) || "",
+      };
+      if (role === "assistant") {
+        const tokens = (info.tokens ?? {}) as Record<string, unknown>;
+        const cache = (tokens.cache ?? {}) as Record<string, unknown>;
+        result.cost = info.cost ?? 0;
+        result.tokens_input = tokens.input ?? 0;
+        result.tokens_output = tokens.output ?? 0;
+        result.tokens_reasoning = tokens.reasoning ?? 0;
+        result.tokens_cache_read = cache.read ?? 0;
+        result.tokens_cache_write = cache.write ?? 0;
+        result.finish_reason = (info.finish as string) || "";
+        result.model_id = (info.modelID as string) || "";
+        result.agent_name = (info.agent as string) || "";
+        if (info.error) {
+          const err = info.error as Record<string, unknown>;
+          result.error_name = (err.name as string) || "";
+          result.error_message = (err.message as string) || "";
+        }
+      }
+      return result;
+    }
+
+    case "message.part.updated": {
+      const part = (props.part ?? {}) as Record<string, unknown>;
+      const partType = (part.type as string) || "";
+      const result: Record<string, unknown> = {
+        part_type: partType,
+        part_id: (part.id as string) || "",
+        message_id: (part.messageID as string) || "",
+      };
+      switch (partType) {
+        case "text":
+          // Truncate text to 10KB to avoid bloating the payload
+          result.text = typeof part.text === "string"
+            ? (part.text as string).slice(0, 10000)
+            : "";
+          break;
+        case "reasoning":
+          result.text = typeof part.text === "string"
+            ? (part.text as string).slice(0, 10000)
+            : "";
+          break;
+        case "tool": {
+          result.tool_name = (part.tool as string) || "";
+          result.call_id = (part.callID as string) || "";
+          const state = (part.state ?? {}) as Record<string, unknown>;
+          result.tool_status = (state.status as string) || "";
+          result.tool_title = (state.title as string) || "";
+          if (state.status === "error") {
+            result.tool_error = (state.error as string) || "";
+          }
+          break;
+        }
+        case "step-finish": {
+          result.finish_reason = (part.reason as string) || "";
+          result.cost = part.cost ?? 0;
+          const tokens = (part.tokens ?? {}) as Record<string, unknown>;
+          const cache = (tokens.cache ?? {}) as Record<string, unknown>;
+          result.tokens_input = tokens.input ?? 0;
+          result.tokens_output = tokens.output ?? 0;
+          result.tokens_reasoning = tokens.reasoning ?? 0;
+          result.tokens_cache_read = cache.read ?? 0;
+          result.tokens_cache_write = cache.write ?? 0;
+          break;
+        }
+      }
+      return result;
+    }
 
     default:
       return {

@@ -42,14 +42,24 @@ func subtypeColor(subtype string) color.Color {
 		return colorGreen
 	case "PostToolUseFailure":
 		return colorRed
-	case "SessionStart", "SessionEnd":
+	case "SessionStart", "SessionEnd", "SessionDiff", "SessionUpdated":
 		return colorBlue
 	case "UserPromptSubmit":
 		return colorMagenta
-	case "Stop", "SubagentStop", "StopFailure":
+	case "Stop", "SubagentStop", "StopFailure", "SessionStatus":
 		return colorOrange
-	case "Notification":
+	case "Notification", "PermissionReply":
 		return colorDimWhite
+	case "PartUpdated":
+		return colorCyan
+	case "MessageUpdated":
+		return colorMagenta
+	case "TodoUpdate":
+		return colorYellow
+	case "CommandExecuted":
+		return colorGreen
+	case "FileEdited":
+		return colorBlue
 	default:
 		return colorWhite
 	}

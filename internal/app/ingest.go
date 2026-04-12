@@ -242,7 +242,7 @@ func IngestOpenCodeEvent(ctx context.Context, st *store.Store, payload map[strin
 			} else if parentSessionID == "" {
 				agentName = "main"
 			}
-		} else if parsed.Subtype == "session.updated" && title != "" {
+		} else if parsed.Subtype == "SessionUpdated" && title != "" {
 			agentName = title
 		}
 		if err := q.UpsertAgent(ctx, rootAgentID, parsed.SessionID, "", agentName, parsed.SubAgentDescription, "", ""); err != nil {
