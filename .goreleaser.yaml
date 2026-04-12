@@ -50,7 +50,7 @@ homebrew_casks:
     binaries:
       - lazyagent
     homepage: https://github.com/chojs23/lazyagent
-    description: Observe AI coding sessions from the terminal
+    description: Observe your ai agents and sessions from the terminal
     repository:
       owner: "{{ .Env.HOMEBREW_TAP_OWNER }}"
       name: "{{ .Env.HOMEBREW_TAP_REPO }}"
