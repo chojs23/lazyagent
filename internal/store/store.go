@@ -650,16 +650,10 @@ func (q *Queries) CountEventsForSessionTree(ctx context.Context, sessionID strin
 	return count, err
 }
 
-func (q *Queries) ListEventsForSessionTree(ctx context.Context, sessionID string, f model.EventFilter) ([]model.Event, error) {
-	cte := `WITH RECURSIVE session_tree(id) AS (
-		SELECT ?1
-		UNION ALL
-		SELECT s.id FROM sessions s
-		JOIN session_tree st ON s.parent_session_id = st.id
-	) `
-	parts := []string{cte + "SELECT id, agent_id, session_id, type, COALESCE(subtype,''), COALESCE(tool_name,''), COALESCE(tool_use_id,''), timestamp, created_at, payload FROM events WHERE session_id IN (SELECT id FROM session_tree)"}
-	args := []any{sessionID}
-
+// appendEventFilterConditions keeps the event filter predicate assembly in one
+// place so tree count and list queries cannot drift on agent, type, subtype,
+// or payload search handling.
+func appendEventFilterConditions(parts []string, args []any, f model.EventFilter) ([]string, []any) {
 	if len(f.AgentIDs) > 0 {
 		placeholders := make([]string, len(f.AgentIDs))
 		for i, id := range f.AgentIDs {
@@ -680,6 +674,38 @@ func (q *Queries) ListEventsForSessionTree(ctx context.Context, sessionID string
 		parts = append(parts, "AND payload LIKE ?")
 		args = append(args, "%"+f.Search+"%")
 	}
+	return parts, args
+}
+
+// CountFilteredEventsForSessionTree counts events in the session tree that
+// match the given filter conditions. When no filter fields are set this
+// behaves identically to CountEventsForSessionTree.
+func (q *Queries) CountFilteredEventsForSessionTree(ctx context.Context, sessionID string, f model.EventFilter) (int, error) {
+	cte := `WITH RECURSIVE session_tree(id) AS (
+		SELECT ?1
+		UNION ALL
+		SELECT s.id FROM sessions s
+		JOIN session_tree st ON s.parent_session_id = st.id
+	) `
+	parts := []string{cte + "SELECT COUNT(*) FROM events WHERE session_id IN (SELECT id FROM session_tree)"}
+	args := []any{sessionID}
+	parts, args = appendEventFilterConditions(parts, args, f)
+
+	var count int
+	err := q.db.QueryRowContext(ctx, strings.Join(parts, " "), args...).Scan(&count)
+	return count, err
+}
+
+func (q *Queries) ListEventsForSessionTree(ctx context.Context, sessionID string, f model.EventFilter) ([]model.Event, error) {
+	cte := `WITH RECURSIVE session_tree(id) AS (
+		SELECT ?1
+		UNION ALL
+		SELECT s.id FROM sessions s
+		JOIN session_tree st ON s.parent_session_id = st.id
+	) `
+	parts := []string{cte + "SELECT id, agent_id, session_id, type, COALESCE(subtype,''), COALESCE(tool_name,''), COALESCE(tool_use_id,''), timestamp, created_at, payload FROM events WHERE session_id IN (SELECT id FROM session_tree)"}
+	args := []any{sessionID}
+	parts, args = appendEventFilterConditions(parts, args, f)
 	parts = append(parts, "ORDER BY timestamp ASC")
 	if f.Limit > 0 {
 		parts = append(parts, "LIMIT ?")

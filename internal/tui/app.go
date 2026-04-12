@@ -30,6 +30,7 @@ type dataMsg struct {
 	agents   []model.Agent
 	events   []model.Event
 	rawCount int
+	offset   int // offset of the first loaded event within the (possibly filtered) result set
 	err      error
 }
 
@@ -402,8 +403,7 @@ func (m *Model) applyData(d dataMsg) {
 		m.projects.rebuildItems()
 	}
 
-	initialOffset := max(0, d.rawCount-len(d.events))
-	m.events.setEvents(d.events, d.rawCount, initialOffset)
+	m.events.setEvents(d.events, d.rawCount, d.offset)
 	m.syncDetailFromEvent()
 
 	agentLabel := "all"
@@ -572,6 +572,7 @@ func (m Model) loadDataCmd() tea.Cmd {
 		var agents []model.Agent
 		var events []model.Event
 		rawCount := 0
+		eventsOffset := 0
 
 		if sessionID != "" {
 			agents, err = q.ListAgentsForSessionTree(ctx, sessionID)
@@ -584,15 +585,31 @@ func (m Model) loadDataCmd() tea.Cmd {
 				return dataMsg{err: err}
 			}
 
+			// When filters are active the SQL OFFSET must be relative to the
+			// filtered result set, not the total event count. Use a filtered
+			// count so pagination and needsOlder() work correctly.
+			hasFilter := agentID != "" || typeFilter != "" || search != ""
+			filteredCount := rawCount
+			if hasFilter {
+				cf := model.EventFilter{Type: typeFilter, Search: search}
+				if agentID != "" {
+					cf.AgentIDs = []string{agentID}
+				}
+				filteredCount, err = q.CountFilteredEventsForSessionTree(ctx, sessionID, cf)
+				if err != nil {
+					return dataMsg{err: err}
+				}
+			}
+
 			// Load from the end so the user sees the latest events first.
 			// On refresh, preserve the number of already-loaded events.
 			pageLimit := max(eventsPageSize, loadedCount)
-			initialOffset := max(0, rawCount-pageLimit)
+			eventsOffset = max(0, filteredCount-pageLimit)
 			filter := model.EventFilter{
 				Type:   typeFilter,
 				Search: search,
 				Limit:  pageLimit,
-				Offset: initialOffset,
+				Offset: eventsOffset,
 			}
 			if agentID != "" {
 				filter.AgentIDs = []string{agentID}
@@ -609,6 +626,7 @@ func (m Model) loadDataCmd() tea.Cmd {
 			agents:   agents,
 			events:   events,
 			rawCount: rawCount,
+			offset:   eventsOffset,
 		}
 	}
 }
