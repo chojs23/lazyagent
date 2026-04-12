@@ -10,7 +10,7 @@ import (
 	"github.com/chojs23/lazyagent/internal/model"
 )
 
-const eventsPageSize = 1000
+const eventsPageSize = 3000
 
 type eventsModel struct {
 	events       []model.Event
@@ -136,10 +136,11 @@ func (e *eventsModel) view(width, height int, focused bool, agentMap map[string]
 
 	var lines []string
 	end := min(e.scroll+contentHeight, len(e.events))
-	totalDigits := len(fmt.Sprintf("%d", len(e.events)))
+	totalDigits := len(fmt.Sprintf("%d", e.loadedOffset+len(e.events)))
 	for i := e.scroll; i < end; i++ {
 		ev := e.events[i]
-		line := e.renderEventLine(ev, i, i == e.cursor && focused, agentMap, width-4, totalDigits)
+		absIndex := e.loadedOffset + i
+		line := e.renderEventLine(ev, absIndex, i == e.cursor && focused, agentMap, width-4, totalDigits)
 		lines = append(lines, line)
 	}
 
