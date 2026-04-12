@@ -53,6 +53,9 @@ func ParseRawEvent(raw map[string]any) model.ParsedEvent {
 	case "session.created":
 		p.Type = "session"
 		p.Subtype = "SessionStart"
+	case "session.updated":
+		p.Type = "session"
+		p.Subtype = "SessionUpdated"
 	case "session.idle":
 		p.Type = "system"
 		p.Subtype = "Stop"
@@ -86,6 +89,12 @@ func ParseRawEvent(raw map[string]any) model.ParsedEvent {
 	case "file.edited":
 		p.Type = "system"
 		p.Subtype = "FileEdited"
+	case "message.updated":
+		p.Type = "message"
+		p.Subtype = "MessageUpdated"
+	case "message.part.updated":
+		p.Type = "message"
+		p.Subtype = "PartUpdated"
 	default:
 		p.Type = "system"
 		p.Subtype = event
@@ -162,6 +171,30 @@ func ParseRawEvent(raw map[string]any) model.ParsedEvent {
 	case "file.edited":
 		if v, ok := raw["file"]; ok {
 			p.Metadata["file"] = v
+		}
+	case "message.updated":
+		for _, k := range []string{
+			"message_role", "message_id", "model_id", "agent_name",
+			"cost", "finish_reason",
+			"tokens_input", "tokens_output", "tokens_reasoning",
+			"tokens_cache_read", "tokens_cache_write",
+			"error_name", "error_message",
+		} {
+			if v, ok := raw[k]; ok {
+				p.Metadata[k] = v
+			}
+		}
+	case "message.part.updated":
+		for _, k := range []string{
+			"part_type", "part_id", "message_id",
+			"text", "tool_name", "call_id", "tool_status", "tool_title", "tool_error",
+			"finish_reason", "cost",
+			"tokens_input", "tokens_output", "tokens_reasoning",
+			"tokens_cache_read", "tokens_cache_write",
+		} {
+			if v, ok := raw[k]; ok {
+				p.Metadata[k] = v
+			}
 		}
 	}
 

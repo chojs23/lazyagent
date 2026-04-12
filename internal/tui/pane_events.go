@@ -177,10 +177,31 @@ func (e *eventsModel) renderEventLine(ev model.Event, index int, selected bool, 
 		parts = append(parts, lipgloss.NewStyle().Foreground(colorBlue).Render(ev.ToolName))
 	}
 	if brief != "" {
-		parts = append(parts, dimStyle.Render(brief))
+		if isBriefHighlighted(ev) {
+			parts = append(parts, lipgloss.NewStyle().Foreground(colorWhite).Render(brief))
+		} else {
+			parts = append(parts, dimStyle.Render(brief))
+		}
 	}
 
 	return "  " + strings.Join(parts, "  ")
+}
+
+// isBriefHighlighted returns true for events whose brief text should be
+// rendered in white (user messages and AI text responses) instead of dim gray.
+func isBriefHighlighted(ev model.Event) bool {
+	if ev.Subtype == "UserPromptSubmit" {
+		return true
+	}
+	if ev.Subtype != "PartUpdated" {
+		return false
+	}
+	var p map[string]any
+	if err := json.Unmarshal([]byte(ev.Payload), &p); err != nil {
+		return false
+	}
+	pt := getStr(p, "part_type")
+	return pt == "text" || pt == "reasoning"
 }
 
 func eventBrief(ev model.Event) string {
@@ -300,6 +321,49 @@ func eventBrief(ev model.Event) string {
 		return name
 	case "FileEdited":
 		return getStr(p, "file")
+
+	case "MessageUpdated":
+		role := getStr(p, "message_role")
+		if role == "assistant" {
+			cost := getStr(p, "cost")
+			in := getStr(p, "tokens_input")
+			out := getStr(p, "tokens_output")
+			if in != "" || out != "" {
+				s := fmt.Sprintf("token in:%s token out:%s", in, out)
+				if cost != "" && cost != "0" {
+					s += fmt.Sprintf(" $%s", cost)
+				}
+				return s
+			}
+			return role
+		}
+		return role
+
+	case "PartUpdated":
+		partType := getStr(p, "part_type")
+		switch partType {
+		case "text":
+			return truncate(firstLine(getStr(p, "text")), 80)
+		case "reasoning":
+			return truncate("reasoning: "+firstLine(getStr(p, "text")), 80)
+		case "tool":
+			name := getStr(p, "tool_name")
+			status := getStr(p, "tool_status")
+			title := getStr(p, "tool_title")
+			s := name + " [" + status + "]"
+			if title != "" {
+				s += " " + title
+			}
+			return truncate(s, 80)
+		case "step-finish":
+			in := getStr(p, "tokens_input")
+			out := getStr(p, "tokens_output")
+			return fmt.Sprintf("step done (in:%s out:%s)", in, out)
+		case "step-start":
+			return "step start"
+		default:
+			return partType
+		}
 
 	default:
 		return ""

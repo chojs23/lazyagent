@@ -239,6 +239,57 @@ func (d *detailModel) renderToolDetail(ev *model.Event) string {
 		return joinNonEmpty("\n",
 			field("File", get("file")),
 		)
+	case "MessageUpdated":
+		return joinNonEmpty("\n",
+			field("Role", get("message_role")),
+			field("Model", get("model_id")),
+			field("Agent", get("agent_name")),
+			field("Finish", get("finish_reason")),
+			field("Cost", get("cost")),
+			field("Input Tokens", get("tokens_input")),
+			field("Output Tokens", get("tokens_output")),
+			field("Reasoning Tokens", get("tokens_reasoning")),
+			field("Cache Read", get("tokens_cache_read")),
+			field("Cache Write", get("tokens_cache_write")),
+			field("Error", get("error_name")),
+			field("Error Message", get("error_message")),
+		)
+	case "PartUpdated":
+		partType := get("part_type")
+		switch partType {
+		case "text":
+			return joinNonEmpty("\n",
+				field("Part", "text"),
+				block("Content", get("text")),
+			)
+		case "reasoning":
+			return joinNonEmpty("\n",
+				field("Part", "reasoning"),
+				block("Content", get("text")),
+			)
+		case "tool":
+			return joinNonEmpty("\n",
+				field("Part", "tool"),
+				field("Tool", get("tool_name")),
+				field("Call ID", get("call_id")),
+				field("Status", get("tool_status")),
+				field("Title", get("tool_title")),
+				field("Error", get("tool_error")),
+			)
+		case "step-finish":
+			return joinNonEmpty("\n",
+				field("Part", "step-finish"),
+				field("Reason", get("finish_reason")),
+				field("Cost", get("cost")),
+				field("Input Tokens", get("tokens_input")),
+				field("Output Tokens", get("tokens_output")),
+				field("Reasoning Tokens", get("tokens_reasoning")),
+				field("Cache Read", get("tokens_cache_read")),
+				field("Cache Write", get("tokens_cache_write")),
+			)
+		default:
+			return field("Part", partType)
+		}
 	}
 
 	// tool events: render by tool name

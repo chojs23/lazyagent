@@ -148,6 +148,90 @@ func TestParseRawEvent_NewEventTypes(t *testing.T) {
 	}
 }
 
+func TestParseRawEvent_MessageUpdated(t *testing.T) {
+	raw := map[string]any{
+		"event":              "message.updated",
+		"session_id":         "sess-1",
+		"message_role":       "assistant",
+		"message_id":         "msg-1",
+		"model_id":           "claude-sonnet-4-5-20250514",
+		"cost":               float64(0.0123),
+		"tokens_input":       float64(1000),
+		"tokens_output":      float64(500),
+		"tokens_reasoning":   float64(0),
+		"tokens_cache_read":  float64(800),
+		"tokens_cache_write": float64(200),
+		"finish_reason":      "end_turn",
+	}
+	p := ParseRawEvent(raw)
+
+	if p.Type != "message" {
+		t.Fatalf("Type = %q, want message", p.Type)
+	}
+	if p.Subtype != "MessageUpdated" {
+		t.Fatalf("Subtype = %q, want MessageUpdated", p.Subtype)
+	}
+	if p.Metadata["message_role"] != "assistant" {
+		t.Fatalf("message_role = %v", p.Metadata["message_role"])
+	}
+	if p.Metadata["tokens_input"] != float64(1000) {
+		t.Fatalf("tokens_input = %v", p.Metadata["tokens_input"])
+	}
+	if p.Metadata["cost"] != float64(0.0123) {
+		t.Fatalf("cost = %v", p.Metadata["cost"])
+	}
+}
+
+func TestParseRawEvent_PartUpdatedText(t *testing.T) {
+	raw := map[string]any{
+		"event":      "message.part.updated",
+		"session_id": "sess-1",
+		"part_type":  "text",
+		"part_id":    "part-1",
+		"message_id": "msg-1",
+		"text":       "Hello, I can help you with that.",
+	}
+	p := ParseRawEvent(raw)
+
+	if p.Type != "message" {
+		t.Fatalf("Type = %q, want message", p.Type)
+	}
+	if p.Subtype != "PartUpdated" {
+		t.Fatalf("Subtype = %q, want PartUpdated", p.Subtype)
+	}
+	if p.Metadata["part_type"] != "text" {
+		t.Fatalf("part_type = %v", p.Metadata["part_type"])
+	}
+	if p.Metadata["text"] != "Hello, I can help you with that." {
+		t.Fatalf("text = %v", p.Metadata["text"])
+	}
+}
+
+func TestParseRawEvent_PartUpdatedTool(t *testing.T) {
+	raw := map[string]any{
+		"event":       "message.part.updated",
+		"session_id":  "sess-1",
+		"part_type":   "tool",
+		"part_id":     "part-2",
+		"message_id":  "msg-1",
+		"tool_name":   "Read",
+		"call_id":     "call-1",
+		"tool_status": "completed",
+		"tool_title":  "internal/app/ingest.go",
+	}
+	p := ParseRawEvent(raw)
+
+	if p.Metadata["part_type"] != "tool" {
+		t.Fatalf("part_type = %v", p.Metadata["part_type"])
+	}
+	if p.Metadata["tool_name"] != "Read" {
+		t.Fatalf("tool_name = %v", p.Metadata["tool_name"])
+	}
+	if p.Metadata["tool_status"] != "completed" {
+		t.Fatalf("tool_status = %v", p.Metadata["tool_status"])
+	}
+}
+
 func TestParseRawEvent_NormalizeToolName(t *testing.T) {
 	cases := []struct {
 		input string
