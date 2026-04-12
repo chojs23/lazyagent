@@ -10,6 +10,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 
+	"github.com/chojs23/lazyagent/internal/applog"
 	"github.com/chojs23/lazyagent/internal/model"
 	"github.com/chojs23/lazyagent/internal/store"
 )
@@ -62,6 +63,8 @@ type Model struct {
 	lastError error
 	lastKey   string
 
+	errorOverlay errorOverlay
+
 	allSessions []model.Session
 }
 
@@ -110,8 +113,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case dataMsg:
 		if msg.err != nil {
-			m.lastError = msg.err
-			m.status = msg.err.Error()
+			m.reportError("Refresh failed", msg.err)
 			return m, nil
 		}
 		m.lastError = nil
@@ -119,7 +121,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case moreEventsMsg:
-		if msg.err == nil && len(msg.events) > 0 {
+		if msg.err != nil {
+			m.reportError("Load older events failed", msg.err)
+			return m, nil
+		}
+		if len(msg.events) > 0 {
 			m.events.prependEvents(msg.events, msg.offset)
 			m.syncDetailFromEvent()
 		}
@@ -129,6 +135,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, tea.Batch(m.loadDataCmd(), tickCmd(m.refreshInterval))
 
 	case spinnerTickMsg:
+		m.errorOverlay.update(time.Time(msg))
 		m.agents.tick()
 		m.projects.tick()
 		return m, spinnerTickCmd()
@@ -416,6 +423,16 @@ func (m *Model) applyData(d dataMsg) {
 		len(d.projects), len(d.sessions), len(d.events), d.rawCount, len(d.agents))
 }
 
+func (m *Model) reportError(context string, err error) {
+	if err == nil {
+		return
+	}
+	applog.Error(context, err)
+	m.lastError = err
+	m.status = context + ": " + err.Error()
+	m.errorOverlay.show(context, err.Error())
+}
+
 func (m Model) handleDelete() (tea.Model, tea.Cmd) {
 	if m.focus != focusProjects {
 		return m, nil
@@ -430,7 +447,7 @@ func (m Model) handleDelete() (tea.Model, tea.Cmd) {
 		if err := m.store.WithTx(ctx, func(q *store.Queries) error {
 			return q.DeleteSession(ctx, item.sessionID)
 		}); err != nil {
-			m.status = "Delete failed: " + err.Error()
+			m.reportError("Delete failed", err)
 			return m, nil
 		}
 		m.projects.selectedSession = ""
@@ -439,7 +456,7 @@ func (m Model) handleDelete() (tea.Model, tea.Cmd) {
 		if err := m.store.WithTx(ctx, func(q *store.Queries) error {
 			return q.DeleteProject(ctx, item.projectID)
 		}); err != nil {
-			m.status = "Delete failed: " + err.Error()
+			m.reportError("Delete failed", err)
 			return m, nil
 		}
 		m.projects.selectedSession = ""
@@ -457,7 +474,7 @@ func (m Model) handleClearEvents() (tea.Model, tea.Cmd) {
 	if err := m.store.WithTx(ctx, func(q *store.Queries) error {
 		return q.ClearSessionEvents(ctx, sid)
 	}); err != nil {
-		m.status = "Clear failed: " + err.Error()
+		m.reportError("Clear failed", err)
 		return m, nil
 	}
 	m.status = "Events cleared"
@@ -535,6 +552,9 @@ func (m Model) View() tea.View {
 	statusLine := statusBarStyle.Render(m.status)
 
 	full := lipgloss.JoinVertical(lipgloss.Left, main, filterBar, statusLine+" "+helpLine)
+	if m.errorOverlay.visible {
+		full = renderOverlay(full, m.width, m.height, m.errorOverlay.view(m.width, m.height))
+	}
 
 	v := tea.NewView(full)
 	v.AltScreen = true
@@ -557,7 +577,9 @@ func (m Model) loadDataCmd() tea.Cmd {
 
 		// Auto-stop sessions that have been idle for over 5 minutes
 		// with no active child sessions. Handles ungraceful shutdowns.
-		q.ReapStaleSessions(ctx, 5*60*1000)
+		if _, err := q.ReapStaleSessions(ctx, 5*60*1000); err != nil {
+			return dataMsg{err: err}
+		}
 
 		projects, err := q.ListProjects(ctx)
 		if err != nil {
