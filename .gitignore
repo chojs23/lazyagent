@@ -1,4 +1,6 @@
 bin/
+dist/
+result
 *.db
 *.db-wal
 *.db-shm
