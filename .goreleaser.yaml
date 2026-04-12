@@ -1,0 +1,63 @@
+version: 2
+
+project_name: lazyagent
+
+builds:
+  - id: lazyagent
+    main: ./cmd/lazyagent
+    binary: lazyagent
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+      - darwin
+      - windows
+    goarch:
+      - amd64
+      - arm64
+    ldflags:
+      - >-
+        -s -w
+        -X github.com/chojs23/lazyagent/internal/version.Version={{ .Version }}
+        -X github.com/chojs23/lazyagent/internal/version.Commit={{ .FullCommit }}
+        -X github.com/chojs23/lazyagent/internal/version.BuildDate={{ .Date }}
+
+archives:
+  - ids:
+      - lazyagent
+    formats:
+      - tar.gz
+    format_overrides:
+      - goos: windows
+        formats:
+          - zip
+
+checksum:
+  name_template: checksums.txt
+
+changelog:
+  sort: asc
+  filters:
+    exclude:
+      - "^docs:"
+      - "^test:"
+
+homebrew_casks:
+  - ids:
+      - lazyagent
+    name: lazyagent
+    binaries:
+      - lazyagent
+    homepage: https://github.com/chojs23/lazyagent
+    description: Observe AI coding sessions from the terminal
+    repository:
+      owner: "{{ .Env.HOMEBREW_TAP_OWNER }}"
+      name: "{{ .Env.HOMEBREW_TAP_REPO }}"
+      branch: "{{ .Env.HOMEBREW_TAP_BRANCH }}"
+      token: "{{ .Env.HOMEBREW_TAP_TOKEN }}"
+    hooks:
+      post:
+        install: |
+          if OS.mac?
+            system_command "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "#{staged_path}/lazyagent"]
+          end
