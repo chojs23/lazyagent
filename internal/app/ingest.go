@@ -249,7 +249,7 @@ func IngestOpenCodeEvent(ctx context.Context, st *store.Store, payload map[strin
 			agentName = parsed.SubAgentName
 		} else if parsed.Subtype == "SessionStart" {
 			if parentSessionID == "" {
-				agentName = "main"
+				agentName = "opencode"
 			} else if title != "" {
 				agentName = title
 			}
@@ -416,12 +416,42 @@ func IngestCodexEvent(ctx context.Context, st *store.Store, payload map[string]a
 			projectID = id
 		}
 
-		if err := q.UpsertSession(ctx, parsed.SessionID, "", projectID, "", "codex", parsed.Metadata, parsed.Timestamp, parsed.TranscriptPath); err != nil {
+		// Read parent-child relationship from the Codex session file.
+		// The hook payload does not include parent info, so we read the
+		// first line of the JSONL transcript file which contains
+		// forked_from_id for subagent sessions.
+		// Lazy approach: only read if the session doesn't already have
+		// a parent set, since the file may not exist at SessionStart time.
+		//
+		// When the parent is already known, pass empty agentName/agentDesc
+		// so that nullIfEmpty produces NULL and COALESCE in UpsertAgent
+		// preserves the previously stored nickname (e.g. "Cicero").
+		parentSessionID := ""
+		agentName := ""
+		agentDesc := ""
+		if existingSession == nil || existingSession.ParentSessionID == "" {
+			meta := codex.ReadSessionMeta(parsed.TranscriptPath)
+			parentSessionID = meta.ParentSessionID
+			agentName = meta.AgentNickname
+			if meta.AgentRole != "" {
+				if agentName != "" {
+					agentName = agentName + " (" + meta.AgentRole + ")"
+				} else {
+					agentName = meta.AgentRole
+				}
+			}
+			agentDesc = meta.AgentRole
+			if agentName == "" && existingSession == nil {
+				agentName = "codex"
+			}
+		}
+
+		if err := q.UpsertSession(ctx, parsed.SessionID, parentSessionID, projectID, "", "codex", parsed.Metadata, parsed.Timestamp, parsed.TranscriptPath); err != nil {
 			return err
 		}
 
 		rootAgentID := parsed.SessionID
-		if err := q.UpsertAgent(ctx, rootAgentID, parsed.SessionID, "", "codex", "", "", ""); err != nil {
+		if err := q.UpsertAgent(ctx, rootAgentID, parsed.SessionID, "", agentName, agentDesc, "", ""); err != nil {
 			return err
 		}
 		// Codex agents should not inherit the default 'claude-code' agent_class.

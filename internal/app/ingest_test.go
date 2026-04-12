@@ -614,8 +614,8 @@ func TestIngestOpenCodeRootAgentNameStaysMain(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if agent.Name != "main" {
-		t.Fatalf("initial name=%q, want main", agent.Name)
+	if agent.Name != "opencode" {
+		t.Fatalf("initial name=%q, want opencode", agent.Name)
 	}
 
 	// 2. session.updated should NOT overwrite root agent name
@@ -633,8 +633,8 @@ func TestIngestOpenCodeRootAgentNameStaysMain(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if agent.Name != "main" {
-		t.Fatalf("after session.updated: got name=%q, want main (root agent name should not change)", agent.Name)
+	if agent.Name != "opencode" {
+		t.Fatalf("after session.updated: got name=%q, want opencode (root agent name should not change)", agent.Name)
 	}
 }
 
@@ -698,8 +698,8 @@ func TestIngestOpenCodeAgentNameNotOverwrittenByToolTitle(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if agent.Name != "main" {
-		t.Fatalf("after session.created: got name=%q, want main", agent.Name)
+	if agent.Name != "opencode" {
+		t.Fatalf("after session.created: got name=%q, want opencode", agent.Name)
 	}
 
 	// 2. PostToolUse with tool output title should NOT overwrite agent name
@@ -718,8 +718,8 @@ func TestIngestOpenCodeAgentNameNotOverwrittenByToolTitle(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if agent.Name != "main" {
-		t.Fatalf("after tool events: got name=%q, want main", agent.Name)
+	if agent.Name != "opencode" {
+		t.Fatalf("after tool events: got name=%q, want opencode", agent.Name)
 	}
 }
 
@@ -743,8 +743,8 @@ func TestIngestOpenCodeAgentNameFromMessageUpdated(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if agent.Name != "main" {
-		t.Fatalf("initial name=%q, want main", agent.Name)
+	if agent.Name != "opencode" {
+		t.Fatalf("initial name=%q, want opencode", agent.Name)
 	}
 
 	// 2. message.updated with agent_name should update root agent name
