@@ -1,10 +1,6 @@
 package tui
 
-import (
-	"strings"
-
-	"github.com/chojs23/lazyagent/internal/model"
-)
+import "github.com/chojs23/lazyagent/internal/model"
 
 var spinnerFrames = []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"}
 
@@ -140,8 +136,7 @@ func (a *agentsModel) view(width, height int, focused bool) string {
 	a.scroll = min(a.scroll, maxScroll)
 
 	visible := sliceLines(lines, a.scroll, contentHeight)
-	content := title + "\n" + strings.Join(visible, "\n")
-	return paneStyle(focused).Width(width).Height(height).Render(content)
+	return renderPane(width, height, focused, title, visible)
 }
 
 func sliceLines(lines []string, offset, count int) []string {

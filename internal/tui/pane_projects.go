@@ -2,7 +2,6 @@ package tui
 
 import (
 	"fmt"
-	"strings"
 
 	"charm.land/lipgloss/v2"
 
@@ -254,6 +253,5 @@ func (p *projectsModel) view(width, height int, focused bool) string {
 	p.scroll = min(p.scroll, maxScroll)
 
 	visible := sliceLines(lines, p.scroll, contentHeight)
-	content := title + "\n" + strings.Join(visible, "\n")
-	return paneStyle(focused).Width(width).Height(height).Render(content)
+	return renderPane(width, height, focused, title, visible)
 }

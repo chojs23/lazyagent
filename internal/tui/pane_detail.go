@@ -13,11 +13,11 @@ import (
 )
 
 type detailModel struct {
-	viewport     viewport.Model
-	event        *model.Event
-	eventID      int64
-	agents       map[string]*model.Agent
-	showJSON     bool
+	viewport      viewport.Model
+	event         *model.Event
+	eventID       int64
+	agents        map[string]*model.Agent
+	showJSON      bool
 	expandContent bool
 }
 
@@ -421,8 +421,7 @@ func (d *detailModel) view(width, height int, focused bool) string {
 	d.viewport.SetHeight(max(height-3, 4))
 
 	title := titleStyle.Render("Detail")
-	content := title + "\n" + d.viewport.View()
-	return paneStyle(focused).Width(width).Height(height).Render(content)
+	return renderPane(width, height, focused, title, strings.Split(d.viewport.View(), "\n"))
 }
 
 // helpers

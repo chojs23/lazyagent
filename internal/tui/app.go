@@ -98,6 +98,20 @@ func (m Model) Init() tea.Cmd {
 	return tea.Batch(m.loadDataCmd(), tickCmd(m.refreshInterval), spinnerTickCmd())
 }
 
+func (m *Model) syncLayout() {
+	if m.width == 0 || m.height == 0 {
+		return
+	}
+
+	sz := m.calcSizes()
+	m.projects.height = sz.projH
+	m.syncSessionPane()
+	m.agents.height = sz.agentH
+	m.events.height = sz.eventsH
+	m.detail.viewport.SetWidth(max(sz.rightW-4, 10))
+	m.detail.viewport.SetHeight(max(sz.detailH-3, 4))
+}
+
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	if m.filter.searchMode {
 		return m.updateSearch(msg)
@@ -107,13 +121,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
-		sz := m.calcSizes()
-		m.projects.height = sz.projH
-		m.syncSessionPane()
-		m.agents.height = sz.agentH
-		m.events.height = sz.eventsH
-		m.detail.viewport.SetWidth(max(sz.rightW-4, 10))
-		m.detail.viewport.SetHeight(max(sz.detailH-3, 4))
+		m.syncLayout()
 		return m, nil
 
 	case dataMsg:
@@ -165,28 +173,36 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, tea.Quit
 	case key.Matches(msg, m.keys.NextPane):
 		m.focus = (m.focus + 1) % paneCount
+		m.syncLayout()
 		return m, nil
 	case key.Matches(msg, m.keys.PrevPane):
 		m.focus = (m.focus + paneCount - 1) % paneCount
+		m.syncLayout()
 		return m, nil
 	case key.Matches(msg, m.keys.PaneProjects):
 		m.focus = focusProjects
+		m.syncLayout()
 		return m, nil
 	case key.Matches(msg, m.keys.PaneSession):
 		m.focus = focusSession
+		m.syncLayout()
 		return m, nil
 	case key.Matches(msg, m.keys.PaneAgents):
 		m.focus = focusAgents
+		m.syncLayout()
 		return m, nil
 	case key.Matches(msg, m.keys.PaneEvents):
 		m.focus = focusEvents
+		m.syncLayout()
 		return m, nil
 	case key.Matches(msg, m.keys.PaneDetail):
 		m.focus = focusDetail
+		m.syncLayout()
 		return m, nil
 	case key.Matches(msg, m.keys.Search):
 		m.filter.enterSearch()
 		m.status = "Type search query, enter to apply, esc to cancel"
+		m.syncLayout()
 		return m, nil
 	case key.Matches(msg, m.keys.CycleType):
 		m.filter.cycleType()
@@ -201,6 +217,7 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, m.loadDataCmd()
 	case key.Matches(msg, m.keys.Help):
 		m.help.ShowAll = !m.help.ShowAll
+		m.syncLayout()
 		return m, nil
 	case key.Matches(msg, m.keys.AgentAll):
 		if m.focus == focusAgents {
@@ -220,7 +237,7 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case focusProjects:
 		return m.updateProjects(msg)
 	case focusSession:
-		return m, nil
+		return m.updateSession(msg)
 	case focusAgents:
 		return m.updateAgents(msg)
 	case focusEvents:
@@ -230,6 +247,7 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		switch k {
 		case "esc":
 			m.focus = focusEvents
+			m.syncLayout()
 			m.lastKey = k
 			return m, nil
 		case "J":
@@ -295,6 +313,36 @@ func (m Model) updateProjects(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.lastKey = k
 			return m, m.loadDataCmd()
 		}
+	}
+	m.lastKey = k
+	return m, nil
+}
+
+func (m Model) updateSession(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	k := msg.String()
+	switch k {
+	case "j", "down":
+		m.session.moveDown()
+	case "k", "up":
+		m.session.moveUp()
+	case "ctrl+d":
+		m.session.halfPageDown(m.session.height)
+	case "ctrl+u":
+		m.session.halfPageUp(m.session.height)
+	case "G":
+		m.session.goBottom()
+	case "g":
+		if m.lastKey == "g" {
+			m.session.goTop()
+			m.lastKey = ""
+			return m, nil
+		}
+		m.lastKey = "g"
+		return m, nil
+	case "l", "right":
+		m.session.hScroll += 4
+	case "h", "left":
+		m.session.hScroll = max(m.session.hScroll-4, 0)
 	}
 	m.lastKey = k
 	return m, nil
@@ -375,6 +423,7 @@ func (m Model) updateEvents(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.events.hScroll = max(m.events.hScroll-4, 0)
 	case "enter":
 		m.focus = focusDetail
+		m.syncLayout()
 		m.lastKey = k
 		return m, nil
 	}
@@ -392,10 +441,12 @@ func (m Model) updateSearch(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "enter":
 			m.filter.commitSearch()
 			m.status = "Search: " + orDefault(m.filter.searchQuery, "off")
+			m.syncLayout()
 			return m, m.loadDataCmd()
 		case "esc":
 			m.filter.cancelSearch()
 			m.status = "Search cancelled"
+			m.syncLayout()
 			return m, nil
 		}
 	}
@@ -537,11 +588,30 @@ type paneSizes struct {
 	detailH  int
 }
 
+func (m Model) footerViews() (string, string) {
+	filterBar := m.filter.view(m.width)
+	statusContent := m.status
+	if helpLine := m.help.View(m.keys); helpLine != "" {
+		statusContent += " " + helpLine
+	}
+	statusLine := statusBarStyle.Width(m.width).Render(statusContent)
+	return filterBar, statusLine
+}
+
+func (m Model) footerHeight() int {
+	if m.width <= 0 {
+		return 0
+	}
+	filterBar, statusLine := m.footerViews()
+	return lipgloss.Height(filterBar) + lipgloss.Height(statusLine)
+}
+
 func (m Model) calcSizes() paneSizes {
 	sidebarW := max(m.width/4, 24)
 	rightW := m.width - sidebarW
-	leftH := m.height - 3
-	rightH := m.height - 3
+	mainH := max(m.height-m.footerHeight(), 3)
+	leftH := mainH
+	rightH := mainH
 
 	// left: projects vs session vs agents
 	var projH, sessionH, agentH int
@@ -611,13 +681,14 @@ func (m Model) View() tea.View {
 	right := lipgloss.JoinVertical(lipgloss.Left, eventsView, detailView)
 	main := lipgloss.JoinHorizontal(lipgloss.Top, left, right)
 
-	filterBar := m.filter.view(m.width)
-	helpLine := m.help.View(m.keys)
-	statusLine := statusBarStyle.Render(m.status)
+	filterBar, statusLine := m.footerViews()
 
-	full := lipgloss.JoinVertical(lipgloss.Left, main, filterBar, statusLine+" "+helpLine)
+	full := lipgloss.JoinVertical(lipgloss.Left, main, filterBar, statusLine)
 	if m.errorOverlay.visible {
 		full = renderOverlay(full, m.width, m.height, m.errorOverlay.view(m.width, m.height))
+	}
+	if lipgloss.Height(full) > m.height {
+		full = lipgloss.NewStyle().MaxHeight(m.height).Render(full)
 	}
 
 	v := tea.NewView(full)
