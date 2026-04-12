@@ -9,7 +9,17 @@ import (
 )
 
 func formatTime(ts int64) string {
+	if ts == 0 {
+		return "--:--:--"
+	}
 	return time.UnixMilli(ts).Format("15:04:05")
+}
+
+func formatDateTime(ts int64) string {
+	if ts == 0 {
+		return "-"
+	}
+	return time.UnixMilli(ts).Format("2006-01-02 15:04:05")
 }
 
 func shortID(s string) string {
@@ -88,4 +98,3 @@ func clampHScroll(lines []string, hScroll, textWidth int) int {
 	maxHScroll := max(maxW-textWidth, 0)
 	return min(hScroll, maxHScroll)
 }
-

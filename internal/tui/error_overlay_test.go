@@ -44,8 +44,8 @@ func TestReportErrorShowsOverlayWithoutStealingFocus(t *testing.T) {
 
 	updated, _ := m.handleKey(tea.KeyPressMsg(tea.Key{Code: tea.KeyTab}))
 	next := updated.(Model)
-	if next.focus != focusAgents {
-		t.Fatalf("focus = %v, want %v", next.focus, focusAgents)
+	if next.focus != focusSession {
+		t.Fatalf("focus = %v, want %v", next.focus, focusSession)
 	}
 	if !next.errorOverlay.visible {
 		t.Fatal("error overlay should stay visible while focus moves")

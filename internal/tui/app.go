@@ -19,10 +19,11 @@ type focusPane int
 
 const (
 	focusProjects focusPane = iota
+	focusSession
 	focusAgents
 	focusEvents
 	focusDetail
-	paneCount = 4
+	paneCount = 5
 )
 
 type dataMsg struct {
@@ -51,6 +52,7 @@ type Model struct {
 	help            help.Model
 
 	projects projectsModel
+	session  sessionInfoModel
 	agents   agentsModel
 	events   eventsModel
 	detail   detailModel
@@ -65,6 +67,7 @@ type Model struct {
 
 	errorOverlay errorOverlay
 
+	allProjects []model.Project
 	allSessions []model.Session
 }
 
@@ -81,6 +84,7 @@ func newModel(st *store.Store, refreshInterval time.Duration) Model {
 		keys:            defaultKeyMap(),
 		help:            help.New(),
 		projects:        newProjects(),
+		session:         newSessionInfo(),
 		agents:          newAgents(),
 		events:          newEvents(),
 		detail:          newDetail(),
@@ -105,6 +109,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.height = msg.Height
 		sz := m.calcSizes()
 		m.projects.height = sz.projH
+		m.syncSessionPane()
 		m.agents.height = sz.agentH
 		m.events.height = sz.eventsH
 		m.detail.viewport.SetWidth(max(sz.rightW-4, 10))
@@ -167,6 +172,9 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case key.Matches(msg, m.keys.PaneProjects):
 		m.focus = focusProjects
 		return m, nil
+	case key.Matches(msg, m.keys.PaneSession):
+		m.focus = focusSession
+		return m, nil
 	case key.Matches(msg, m.keys.PaneAgents):
 		m.focus = focusAgents
 		return m, nil
@@ -211,6 +219,8 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch m.focus {
 	case focusProjects:
 		return m.updateProjects(msg)
+	case focusSession:
+		return m, nil
 	case focusAgents:
 		return m.updateAgents(msg)
 	case focusEvents:
@@ -281,6 +291,7 @@ func (m Model) updateProjects(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if m.projects.enter() {
 			m.agents.selectedAgent = ""
 			m.agents.cursor = 0
+			m.syncSessionPane()
 			m.lastKey = k
 			return m, m.loadDataCmd()
 		}
@@ -399,6 +410,7 @@ func (m *Model) syncDetailFromEvent() {
 }
 
 func (m *Model) applyData(d dataMsg) {
+	m.allProjects = d.projects
 	m.allSessions = d.sessions
 	m.projects.setData(d.projects, d.sessions)
 	m.agents.setAgents(d.agents)
@@ -410,6 +422,7 @@ func (m *Model) applyData(d dataMsg) {
 		m.projects.rebuildItems()
 	}
 
+	m.syncSessionPane()
 	m.events.setEvents(d.events, d.rawCount, d.offset)
 	m.syncDetailFromEvent()
 
@@ -433,6 +446,37 @@ func (m *Model) reportError(context string, err error) {
 	m.errorOverlay.show(context, err.Error())
 }
 
+func (m *Model) syncSessionPane() {
+	session := m.selectedSessionSummary()
+	project := m.selectedProjectSummary(session)
+	m.session.setSession(session, project)
+}
+
+func (m Model) selectedSessionSummary() *model.Session {
+	sessionID := m.projects.currentSessionID()
+	if sessionID == "" {
+		return nil
+	}
+	for i := range m.allSessions {
+		if m.allSessions[i].ID == sessionID {
+			return &m.allSessions[i]
+		}
+	}
+	return nil
+}
+
+func (m Model) selectedProjectSummary(session *model.Session) *model.Project {
+	if session == nil {
+		return nil
+	}
+	for i := range m.allProjects {
+		if m.allProjects[i].ID == session.ProjectID {
+			return &m.allProjects[i]
+		}
+	}
+	return nil
+}
+
 func (m Model) handleDelete() (tea.Model, tea.Cmd) {
 	if m.focus != focusProjects {
 		return m, nil
@@ -451,6 +495,7 @@ func (m Model) handleDelete() (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		m.projects.selectedSession = ""
+		m.syncSessionPane()
 		m.status = "Session deleted"
 	case "project":
 		if err := m.store.WithTx(ctx, func(q *store.Queries) error {
@@ -460,6 +505,7 @@ func (m Model) handleDelete() (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		m.projects.selectedSession = ""
+		m.syncSessionPane()
 		m.status = "Project deleted"
 	}
 	return m, m.loadDataCmd()
@@ -485,6 +531,7 @@ type paneSizes struct {
 	sidebarW int
 	rightW   int
 	projH    int
+	sessionH int
 	agentH   int
 	eventsH  int
 	detailH  int
@@ -496,18 +543,17 @@ func (m Model) calcSizes() paneSizes {
 	leftH := m.height - 3
 	rightH := m.height - 3
 
-	// left: projects vs agents — 7:3 ratio based on focus
-	var projH, agentH int
+	// left: projects vs session vs agents
+	var projH, sessionH, agentH int
 	switch m.focus {
 	case focusProjects:
-		projH = max(leftH*70/100, 6)
-		agentH = max(leftH-projH, 4)
+		projH, sessionH, agentH = splitThreeHeights(leftH, [3]int{5, 2, 3}, [3]int{6, 4, 4})
+	case focusSession:
+		projH, sessionH, agentH = splitThreeHeights(leftH, [3]int{3, 4, 3}, [3]int{6, 4, 4})
 	case focusAgents:
-		agentH = max(leftH*70/100, 6)
-		projH = max(leftH-agentH, 4)
+		projH, sessionH, agentH = splitThreeHeights(leftH, [3]int{3, 2, 5}, [3]int{6, 4, 4})
 	default:
-		projH = max(leftH*55/100, 6)
-		agentH = max(leftH-projH, 4)
+		projH, sessionH, agentH = splitThreeHeights(leftH, [3]int{4, 2, 3}, [3]int{6, 4, 4})
 	}
 
 	// right: events vs detail — 7:3 ratio based on focus
@@ -524,7 +570,24 @@ func (m Model) calcSizes() paneSizes {
 		detailH = max(rightH-eventsH, 4)
 	}
 
-	return paneSizes{sidebarW, rightW, projH, agentH, eventsH, detailH}
+	return paneSizes{sidebarW, rightW, projH, sessionH, agentH, eventsH, detailH}
+}
+
+func splitThreeHeights(total int, weights [3]int, mins [3]int) (int, int, int) {
+	base := mins[0] + mins[1] + mins[2]
+	if total <= base {
+		first := max(total*weights[0]/(weights[0]+weights[1]+weights[2]), 1)
+		second := max((total-first)*weights[1]/(weights[1]+weights[2]), 1)
+		third := max(total-first-second, 1)
+		return first, second, third
+	}
+
+	remaining := total - base
+	weightSum := weights[0] + weights[1] + weights[2]
+	first := mins[0] + remaining*weights[0]/weightSum
+	second := mins[1] + remaining*weights[1]/weightSum
+	third := total - first - second
+	return first, second, third
 }
 
 func (m Model) View() tea.View {
@@ -537,13 +600,14 @@ func (m Model) View() tea.View {
 	sz := m.calcSizes()
 
 	projView := m.projects.view(sz.sidebarW, sz.projH, m.focus == focusProjects)
+	sessionView := m.session.view(sz.sidebarW, sz.sessionH, m.focus == focusSession)
 	agentView := m.agents.view(sz.sidebarW, sz.agentH, m.focus == focusAgents)
 
 	agentMap := buildAgentMap(m.agents.agents)
 	eventsView := m.events.view(sz.rightW, sz.eventsH, m.focus == focusEvents, agentMap)
 	detailView := m.detail.view(sz.rightW, sz.detailH, m.focus == focusDetail)
 
-	left := lipgloss.JoinVertical(lipgloss.Left, projView, agentView)
+	left := lipgloss.JoinVertical(lipgloss.Left, projView, sessionView, agentView)
 	right := lipgloss.JoinVertical(lipgloss.Left, eventsView, detailView)
 	main := lipgloss.JoinHorizontal(lipgloss.Top, left, right)
 
