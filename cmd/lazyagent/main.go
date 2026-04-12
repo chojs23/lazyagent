@@ -114,7 +114,6 @@ func openStore() (config.Config, *store.Store, error) {
 func runIngest(st *store.Store, args []string) error {
 	fs := flag.NewFlagSet("ingest", flag.ContinueOnError)
 	runtime := fs.String("runtime", "claude", "event runtime")
-	slug := fs.String("project-slug", "", "project slug override")
 	quiet := fs.Bool("quiet", false, "suppress stdout output (required for Codex hooks)")
 	if err := fs.Parse(args); err != nil {
 		return err
@@ -133,9 +132,9 @@ func runIngest(st *store.Store, args []string) error {
 	var result app.IngestResult
 	switch *runtime {
 	case "claude":
-		result, err = app.IngestClaudeEvent(context.Background(), st, payload, *slug)
+		result, err = app.IngestClaudeEvent(context.Background(), st, payload)
 	case "opencode":
-		result, err = app.IngestOpenCodeEvent(context.Background(), st, payload, *slug)
+		result, err = app.IngestOpenCodeEvent(context.Background(), st, payload)
 	case "codex":
 		result, err = app.IngestCodexEvent(context.Background(), st, payload)
 	default:
@@ -414,7 +413,7 @@ func printUsage() {
 	fmt.Println("lazyagent <command>")
 	fmt.Println("Commands:")
 	fmt.Println("  init <claude|opencode|codex>                    Setup hooks/plugin for runtime")
-	fmt.Println("  ingest --runtime claude [--project-slug slug]  Read hook payload from stdin")
+	fmt.Println("  ingest --runtime claude                        Read hook payload from stdin")
 	fmt.Println("         --runtime codex --quiet                 Ingest Codex hook (silent)")
 	fmt.Println("  health                                         Check SQLite access")
 	fmt.Println("  tui                                            Open the terminal UI")

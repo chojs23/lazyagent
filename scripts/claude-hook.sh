@@ -5,10 +5,7 @@ SCRIPT_DIR=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)
 BIN="$SCRIPT_DIR/../bin/lazyagent"
 
 if [ -x "$BIN" ]; then
-    if [ -n "${LAZYAGENT_PROJECT_SLUG:-}" ]; then
-        exec "$BIN" ingest --runtime claude --project-slug "$LAZYAGENT_PROJECT_SLUG"
-    fi
-    exec "$BIN" ingest --runtime claude
+	exec "$BIN" ingest --runtime claude
 fi
 
 printf '%s\n' "lazyagent binary not found at $BIN" >&2

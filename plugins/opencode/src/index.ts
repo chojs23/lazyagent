@@ -2,18 +2,12 @@ import type { Plugin } from "@opencode-ai/plugin";
 import { execFileSync } from "child_process";
 
 const LAZYAGENT_BIN = process.env.LAZYAGENT_BIN || "lazyagent";
-const PROJECT_SLUG = process.env.LAZYAGENT_PROJECT_SLUG || "";
 
 function ingest(payload: Record<string, unknown>): void {
   try {
     execFileSync(
       LAZYAGENT_BIN,
-      [
-        "ingest",
-        "--runtime",
-        "opencode",
-        ...(PROJECT_SLUG ? ["--project-slug", PROJECT_SLUG] : []),
-      ],
+      ["ingest", "--runtime", "opencode"],
       {
         input: JSON.stringify(payload),
         timeout: 5000,
