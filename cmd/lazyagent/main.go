@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/BurntSushi/toml"
 	"github.com/chojs23/lazyagent/internal/app"
 	"github.com/chojs23/lazyagent/internal/config"
 	"github.com/chojs23/lazyagent/internal/store"
@@ -49,7 +50,7 @@ func run() error {
 		return runIngest(st, os.Args[2:])
 	case "init":
 		if len(os.Args) < 3 {
-			fmt.Println("Usage: lazyagent init <claude|opencode>")
+			fmt.Println("Usage: lazyagent init <claude|opencode|codex>")
 			return nil
 		}
 		return runInit(os.Args[2])
@@ -67,6 +68,7 @@ func runIngest(st *store.Store, args []string) error {
 	fs := flag.NewFlagSet("ingest", flag.ContinueOnError)
 	runtime := fs.String("runtime", "claude", "event runtime")
 	slug := fs.String("project-slug", "", "project slug override")
+	quiet := fs.Bool("quiet", false, "suppress stdout output (required for Codex hooks)")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -81,22 +83,25 @@ func runIngest(st *store.Store, args []string) error {
 		return fmt.Errorf("decode JSON: %w", err)
 	}
 
+	var result app.IngestResult
 	switch *runtime {
 	case "claude":
-		result, err := app.IngestClaudeEvent(context.Background(), st, payload, *slug)
-		if err != nil {
-			return err
-		}
-		return writeJSON(map[string]any{"status": "ok", "meta": result})
+		result, err = app.IngestClaudeEvent(context.Background(), st, payload, *slug)
 	case "opencode":
-		result, err := app.IngestOpenCodeEvent(context.Background(), st, payload, *slug)
-		if err != nil {
-			return err
-		}
-		return writeJSON(map[string]any{"status": "ok", "meta": result})
+		result, err = app.IngestOpenCodeEvent(context.Background(), st, payload, *slug)
+	case "codex":
+		result, err = app.IngestCodexEvent(context.Background(), st, payload)
 	default:
 		return fmt.Errorf("unsupported runtime %q", *runtime)
 	}
+	if err != nil {
+		return err
+	}
+
+	if *quiet {
+		return nil
+	}
+	return writeJSON(map[string]any{"status": "ok", "meta": result})
 }
 
 func runHealth(st *store.Store, dbPath string) error {
@@ -119,8 +124,10 @@ func runInit(runtime string) error {
 		return initClaude()
 	case "opencode":
 		return initOpenCode()
+	case "codex":
+		return initCodex()
 	default:
-		return fmt.Errorf("unsupported runtime %q (use claude or opencode)", runtime)
+		return fmt.Errorf("unsupported runtime %q (use claude, opencode, or codex)", runtime)
 	}
 }
 
@@ -224,11 +231,121 @@ func removeLazyagentHooks(eventEntry any) []any {
 	return kept
 }
 
+func initCodex() error {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return err
+	}
+	dir := filepath.Join(home, ".codex")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return err
+	}
+
+	if err := ensureCodexHooksEnabled(filepath.Join(dir, "config.toml")); err != nil {
+		return err
+	}
+
+	if err := installCodexHooks(filepath.Join(dir, "hooks.json")); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+// ensureCodexHooksEnabled reads ~/.codex/config.toml and sets
+// features.codex_hooks = true, preserving all other config.
+func ensureCodexHooksEnabled(configPath string) error {
+	var config map[string]any
+
+	if data, err := os.ReadFile(configPath); err == nil {
+		if _, err := toml.Decode(string(data), &config); err != nil {
+			return fmt.Errorf("parse %s: %w", configPath, err)
+		}
+	}
+	if config == nil {
+		config = map[string]any{}
+	}
+
+	features, _ := config["features"].(map[string]any)
+	if features == nil {
+		features = map[string]any{}
+	}
+	features["codex_hooks"] = true
+	config["features"] = features
+
+	f, err := os.Create(configPath)
+	if err != nil {
+		return fmt.Errorf("write %s: %w", configPath, err)
+	}
+	defer f.Close()
+
+	enc := toml.NewEncoder(f)
+	if err := enc.Encode(config); err != nil {
+		return fmt.Errorf("encode %s: %w", configPath, err)
+	}
+
+	fmt.Printf("Codex hooks enabled in %s\n", configPath)
+	return nil
+}
+
+// installCodexHooks reads ~/.codex/hooks.json and registers lazyagent hooks
+// for all supported Codex events. Existing non-lazyagent hooks are preserved.
+// Re-running is idempotent: prior lazyagent entries are removed before adding.
+func installCodexHooks(hooksPath string) error {
+	hookCmd := "lazyagent ingest --runtime codex --quiet"
+	events := []string{"SessionStart", "PreToolUse", "PostToolUse", "UserPromptSubmit", "Stop"}
+
+	var root map[string]any
+	if data, err := os.ReadFile(hooksPath); err == nil {
+		if err := json.Unmarshal(data, &root); err != nil {
+			return fmt.Errorf("parse %s: %w", hooksPath, err)
+		}
+	}
+	if root == nil {
+		root = map[string]any{}
+	}
+
+	hooks, _ := root["hooks"].(map[string]any)
+	if hooks == nil {
+		hooks = map[string]any{}
+	}
+
+	for _, event := range events {
+		hooks[event] = removeLazyagentHooks(hooks[event])
+
+		entry := map[string]any{
+			"hooks": []any{
+				map[string]any{
+					"type":    "command",
+					"command": hookCmd,
+				},
+			},
+		}
+
+		existing, _ := hooks[event].([]any)
+		hooks[event] = append(existing, entry)
+	}
+
+	root["hooks"] = hooks
+
+	data, err := json.MarshalIndent(root, "", "  ")
+	if err != nil {
+		return err
+	}
+	if err := os.WriteFile(hooksPath, data, 0o644); err != nil {
+		return err
+	}
+
+	fmt.Printf("Codex hooks configured in %s (%d events)\n", hooksPath, len(events))
+	return nil
+}
+
 func printUsage() {
 	fmt.Println("lazyagent <command>")
 	fmt.Println("Commands:")
-	fmt.Println("  init <claude|opencode>                         Setup hooks/plugin for runtime")
+	fmt.Println("  init <claude|opencode|codex>                    Setup hooks/plugin for runtime")
 	fmt.Println("  ingest --runtime claude [--project-slug slug]  Read hook payload from stdin")
+	fmt.Println("         --runtime codex --quiet                 Ingest Codex hook (silent)")
 	fmt.Println("  health                                         Check SQLite access")
 	fmt.Println("  tui                                            Open the terminal UI")
 }

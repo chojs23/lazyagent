@@ -552,6 +552,12 @@ func (q *Queries) UpdateAgentStatus(ctx context.Context, id, status string) erro
 	return err
 }
 
+func (q *Queries) UpdateAgentClass(ctx context.Context, id, agentClass string) error {
+	_, err := q.db.ExecContext(ctx, `UPDATE agents SET agent_class=?, updated_at=? WHERE id=?`,
+		agentClass, nowMillis(), id)
+	return err
+}
+
 func (q *Queries) GetAgentByID(ctx context.Context, id string) (*model.Agent, error) {
 	row := q.db.QueryRowContext(ctx, `
 		SELECT id, session_id, COALESCE(parent_agent_id,''), COALESCE(name,''), COALESCE(description,''),

@@ -68,8 +68,11 @@ func (p *projectsModel) addSessionItem(projectID int64, sess model.Session, dept
 	slug := orDefault(sess.Slug, shortID(sess.ID))
 	_ = slug
 	rt := "C"
-	if sess.Runtime == "opencode" {
+	switch sess.Runtime {
+	case "opencode":
 		rt = "O"
+	case "codex":
+		rt = "X"
 	}
 	indent := ""
 	for i := 0; i < depth; i++ {
