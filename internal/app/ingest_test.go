@@ -31,7 +31,7 @@ func TestIngestSessionStartCreatesProjectAndSession(t *testing.T) {
 		"meta":            map[string]any{"timestamp": float64(1712700000000)},
 	}
 
-	result, err := IngestClaudeEvent(ctx, st, payload, "")
+	result, err := IngestClaudeEvent(ctx, st, payload)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -70,7 +70,7 @@ func TestIngestAgentSpawnAndSubagentNaming(t *testing.T) {
 		"session_id":      "sess-1",
 		"transcript_path": "/home/user/.claude/projects/-home-user-my-app/s.jsonl",
 		"meta":            map[string]any{"timestamp": float64(1712700000000)},
-	}, "")
+	})
 
 	// 2. PreToolUse Agent — stash name
 	IngestClaudeEvent(ctx, st, map[string]any{
@@ -80,7 +80,7 @@ func TestIngestAgentSpawnAndSubagentNaming(t *testing.T) {
 		"tool_use_id":     "tu-1",
 		"tool_input":      map[string]any{"name": "planner", "description": "Plans things", "subagent_type": "Plan"},
 		"meta":            map[string]any{"timestamp": float64(1712700001000)},
-	}, "")
+	})
 
 	// 3. Subagent event arrives (agent_id = subagent)
 	IngestClaudeEvent(ctx, st, map[string]any{
@@ -88,7 +88,7 @@ func TestIngestAgentSpawnAndSubagentNaming(t *testing.T) {
 		"session_id":      "sess-1",
 		"agent_id":        "agent-sub-1",
 		"meta":            map[string]any{"timestamp": float64(1712700002000)},
-	}, "")
+	})
 
 	// Verify subagent got named from queue
 	agent, err := st.Read().GetAgentByID(ctx, "agent-sub-1")
@@ -113,7 +113,7 @@ func TestIngestAgentSpawnAndSubagentNaming(t *testing.T) {
 		"tool_use_id":     "tu-1",
 		"tool_response":   map[string]any{"agentId": "agent-sub-1"},
 		"meta":            map[string]any{"timestamp": float64(1712700003000)},
-	}, "")
+	})
 
 	session, err := st.Read().GetSessionByID(ctx, "sess-1")
 	if err != nil {
@@ -135,13 +135,13 @@ func TestIngestSessionEnd(t *testing.T) {
 		"hook_event_name": "SessionStart",
 		"session_id":      "sess-1",
 		"meta":            map[string]any{"timestamp": float64(1712700000000)},
-	}, "")
+	})
 
 	IngestClaudeEvent(ctx, st, map[string]any{
 		"hook_event_name": "SessionEnd",
 		"session_id":      "sess-1",
 		"meta":            map[string]any{"timestamp": float64(1712700010000)},
-	}, "")
+	})
 
 	session, err := st.Read().GetSessionByID(ctx, "sess-1")
 	if err != nil {
@@ -162,7 +162,7 @@ func TestIngestOpenCodeSessionIdleMarksStopped(t *testing.T) {
 		"project_dir": "/home/user/my-app",
 		"title":       "main",
 		"timestamp":   float64(1712700000000),
-	}, "")
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -172,7 +172,7 @@ func TestIngestOpenCodeSessionIdleMarksStopped(t *testing.T) {
 		"session_id":  "opencode-1",
 		"project_dir": "/home/user/my-app",
 		"timestamp":   float64(1712700010000),
-	}, "")
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -199,7 +199,7 @@ func TestIngestOpenCodeSessionStatusIdleMarksStopped(t *testing.T) {
 		"project_dir": "/home/user/my-app",
 		"title":       "main",
 		"timestamp":   float64(1712700000000),
-	}, "")
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -211,7 +211,7 @@ func TestIngestOpenCodeSessionStatusIdleMarksStopped(t *testing.T) {
 		"status_type": "idle",
 		"project_dir": "/home/user/my-app",
 		"timestamp":   float64(1712700010000),
-	}, "")
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -235,7 +235,7 @@ func TestIngestOpenCodeSessionStatusBusyReactivates(t *testing.T) {
 		"project_dir": "/home/user/my-app",
 		"title":       "main",
 		"timestamp":   float64(1712700000000),
-	}, "")
+	})
 
 	// Stop via session.status idle
 	IngestOpenCodeEvent(ctx, st, map[string]any{
@@ -243,7 +243,7 @@ func TestIngestOpenCodeSessionStatusBusyReactivates(t *testing.T) {
 		"session_id":  "opencode-1",
 		"status_type": "idle",
 		"timestamp":   float64(1712700010000),
-	}, "")
+	})
 
 	// session.status with type "busy" should reactivate
 	IngestOpenCodeEvent(ctx, st, map[string]any{
@@ -251,7 +251,7 @@ func TestIngestOpenCodeSessionStatusBusyReactivates(t *testing.T) {
 		"session_id":  "opencode-1",
 		"status_type": "busy",
 		"timestamp":   float64(1712700020000),
-	}, "")
+	})
 
 	session, _ := st.Read().GetSessionByID(ctx, "opencode-1")
 	if session.Status != "active" {
@@ -268,18 +268,18 @@ func TestIngestOpenCodeSessionStatusIdleDeferredWithChildren(t *testing.T) {
 		"event": "session.created", "session_id": "parent-1",
 		"project_dir": "/home/user/my-app", "title": "main",
 		"timestamp": float64(1712700000000),
-	}, "")
+	})
 	IngestOpenCodeEvent(ctx, st, map[string]any{
 		"event": "session.created", "session_id": "child-1",
 		"parent_session_id": "parent-1", "project_dir": "/home/user/my-app",
 		"title": "(@worker subagent)", "timestamp": float64(1712700001000),
-	}, "")
+	})
 
 	// Parent gets session.status idle while child is active
 	IngestOpenCodeEvent(ctx, st, map[string]any{
 		"event": "session.status", "session_id": "parent-1",
 		"status_type": "idle", "timestamp": float64(1712700002000),
-	}, "")
+	})
 
 	session, _ := st.Read().GetSessionByID(ctx, "parent-1")
 	if session.Status != "active" {
@@ -291,7 +291,7 @@ func TestIngestOpenCodeSessionStatusIdleDeferredWithChildren(t *testing.T) {
 		"event": "session.status", "session_id": "child-1",
 		"parent_session_id": "parent-1",
 		"status_type":       "idle", "timestamp": float64(1712700003000),
-	}, "")
+	})
 
 	child, _ := st.Read().GetSessionByID(ctx, "child-1")
 	if child.Status != "stopped" {
@@ -314,7 +314,7 @@ func TestIngestOpenCodeSessionStatusRetryNotStopped(t *testing.T) {
 		"project_dir": "/home/user/my-app",
 		"title":       "main",
 		"timestamp":   float64(1712700000000),
-	}, "")
+	})
 
 	// session.status with type "retry" should NOT stop the session
 	IngestOpenCodeEvent(ctx, st, map[string]any{
@@ -324,7 +324,7 @@ func TestIngestOpenCodeSessionStatusRetryNotStopped(t *testing.T) {
 		"retry_attempt": float64(1),
 		"retry_message": "rate limited",
 		"timestamp":     float64(1712700010000),
-	}, "")
+	})
 
 	session, _ := st.Read().GetSessionByID(ctx, "opencode-1")
 	if session.Status != "active" {
@@ -343,7 +343,7 @@ func TestIngestOpenCodeIdleDeferredWhileChildrenActive(t *testing.T) {
 		"project_dir": "/home/user/my-app",
 		"title":       "main",
 		"timestamp":   float64(1712700000000),
-	}, "")
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -356,7 +356,7 @@ func TestIngestOpenCodeIdleDeferredWhileChildrenActive(t *testing.T) {
 		"project_dir":       "/home/user/my-app",
 		"title":             "Map modules (@mapper subagent)",
 		"timestamp":         float64(1712700001000),
-	}, "")
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -367,7 +367,7 @@ func TestIngestOpenCodeIdleDeferredWhileChildrenActive(t *testing.T) {
 		"session_id":  "parent-1",
 		"project_dir": "/home/user/my-app",
 		"timestamp":   float64(1712700002000),
-	}, "")
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -388,7 +388,7 @@ func TestIngestOpenCodeIdleDeferredWhileChildrenActive(t *testing.T) {
 		"parent_session_id": "parent-1",
 		"project_dir":       "/home/user/my-app",
 		"timestamp":         float64(1712700003000),
-	}, "")
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -421,29 +421,29 @@ func TestIngestOpenCodeIdleDeferredMultipleChildren(t *testing.T) {
 		"event": "session.created", "session_id": "parent-1",
 		"project_dir": "/home/user/my-app", "title": "main",
 		"timestamp": float64(1712700000000),
-	}, "")
+	})
 	IngestOpenCodeEvent(ctx, st, map[string]any{
 		"event": "session.created", "session_id": "child-a",
 		"parent_session_id": "parent-1", "project_dir": "/home/user/my-app",
 		"title": "(@agent-a subagent)", "timestamp": float64(1712700001000),
-	}, "")
+	})
 	IngestOpenCodeEvent(ctx, st, map[string]any{
 		"event": "session.created", "session_id": "child-b",
 		"parent_session_id": "parent-1", "project_dir": "/home/user/my-app",
 		"title": "(@agent-b subagent)", "timestamp": float64(1712700001500),
-	}, "")
+	})
 
 	// Parent idles
 	IngestOpenCodeEvent(ctx, st, map[string]any{
 		"event": "session.idle", "session_id": "parent-1",
 		"timestamp": float64(1712700002000),
-	}, "")
+	})
 
 	// First child stops — parent should stay active (child-b still running)
 	IngestOpenCodeEvent(ctx, st, map[string]any{
 		"event": "session.idle", "session_id": "child-a",
 		"parent_session_id": "parent-1", "timestamp": float64(1712700003000),
-	}, "")
+	})
 
 	session, _ := st.Read().GetSessionByID(ctx, "parent-1")
 	if session.Status != "active" {
@@ -454,7 +454,7 @@ func TestIngestOpenCodeIdleDeferredMultipleChildren(t *testing.T) {
 	IngestOpenCodeEvent(ctx, st, map[string]any{
 		"event": "session.idle", "session_id": "child-b",
 		"parent_session_id": "parent-1", "timestamp": float64(1712700004000),
-	}, "")
+	})
 
 	session, _ = st.Read().GetSessionByID(ctx, "parent-1")
 	if session.Status != "stopped" {
@@ -472,7 +472,7 @@ func TestIngestOpenCodeStoppedNotReactivatedByPassiveEvents(t *testing.T) {
 		"project_dir": "/home/user/my-app",
 		"title":       "Greeting",
 		"timestamp":   float64(1712700000000),
-	}, "")
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -482,7 +482,7 @@ func TestIngestOpenCodeStoppedNotReactivatedByPassiveEvents(t *testing.T) {
 		"event":      "session.idle",
 		"session_id": "opencode-1",
 		"timestamp":  float64(1712700010000),
-	}, "")
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -494,7 +494,7 @@ func TestIngestOpenCodeStoppedNotReactivatedByPassiveEvents(t *testing.T) {
 		{"event": "session.diff", "session_id": "opencode-1", "timestamp": float64(1712700010054)},
 		{"event": "session.status", "session_id": "opencode-1", "timestamp": float64(1712700010060)},
 	} {
-		if _, err := IngestOpenCodeEvent(ctx, st, evt, ""); err != nil {
+		if _, err := IngestOpenCodeEvent(ctx, st, evt); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -518,7 +518,7 @@ func TestIngestOpenCodeSessionDeletedMarksStopped(t *testing.T) {
 		"project_dir": "/home/user/my-app",
 		"title":       "main",
 		"timestamp":   float64(1712700000000),
-	}, "")
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -528,7 +528,7 @@ func TestIngestOpenCodeSessionDeletedMarksStopped(t *testing.T) {
 		"session_id":  "opencode-1",
 		"project_dir": "/home/user/my-app",
 		"timestamp":   float64(1712700010000),
-	}, "")
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -555,7 +555,7 @@ func TestIngestOpenCodeEventReactivatesStoppedSession(t *testing.T) {
 		"project_dir": "/home/user/my-app",
 		"title":       "main",
 		"timestamp":   float64(1712700000000),
-	}, "")
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -565,7 +565,7 @@ func TestIngestOpenCodeEventReactivatesStoppedSession(t *testing.T) {
 		"session_id":  "opencode-1",
 		"project_dir": "/home/user/my-app",
 		"timestamp":   float64(1712700010000),
-	}, "")
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -577,7 +577,7 @@ func TestIngestOpenCodeEventReactivatesStoppedSession(t *testing.T) {
 		"tool":        "Read",
 		"call_id":     "call-1",
 		"timestamp":   float64(1712700020000),
-	}, "")
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -605,7 +605,7 @@ func TestIngestOpenCodeRootAgentNameStaysMain(t *testing.T) {
 		"project_dir": "/home/user/my-app",
 		"title":       "New session - 2026-04-12T05:17:16.808Z",
 		"timestamp":   float64(1712700000000),
-	}, "")
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -624,7 +624,7 @@ func TestIngestOpenCodeRootAgentNameStaysMain(t *testing.T) {
 		"session_id": "root-1",
 		"title":      "Exhaustive bug hunt across codebase",
 		"timestamp":  float64(1712700001000),
-	}, "")
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -647,14 +647,14 @@ func TestIngestOpenCodeChildAgentNameUpdatedBySessionUpdated(t *testing.T) {
 		"event": "session.created", "session_id": "parent-1",
 		"project_dir": "/home/user/my-app", "title": "main",
 		"timestamp": float64(1712700000000),
-	}, "")
+	})
 
 	// 2. Create child with placeholder title
 	_, err := IngestOpenCodeEvent(ctx, st, map[string]any{
 		"event": "session.created", "session_id": "child-1",
 		"parent_session_id": "parent-1", "project_dir": "/home/user/my-app",
 		"title": "New session - placeholder", "timestamp": float64(1712700001000),
-	}, "")
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -664,7 +664,7 @@ func TestIngestOpenCodeChildAgentNameUpdatedBySessionUpdated(t *testing.T) {
 		"event": "session.updated", "session_id": "child-1",
 		"parent_session_id": "parent-1",
 		"title":             "Map affected modules", "timestamp": float64(1712700002000),
-	}, "")
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -689,7 +689,7 @@ func TestIngestOpenCodeAgentNameNotOverwrittenByToolTitle(t *testing.T) {
 		"project_dir": "/home/user/my-app",
 		"title":       "Greeting",
 		"timestamp":   float64(1712700000000),
-	}, "")
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -709,7 +709,7 @@ func TestIngestOpenCodeAgentNameNotOverwrittenByToolTitle(t *testing.T) {
 		{"event": "session.status", "session_id": "root-1", "timestamp": float64(1712700003000)},
 		{"event": "tool.execute.after", "session_id": "root-1", "tool": "Agent", "call_id": "c3", "title": "unspecified-low - Map app architecture", "timestamp": float64(1712700004000)},
 	} {
-		if _, err := IngestOpenCodeEvent(ctx, st, evt, ""); err != nil {
+		if _, err := IngestOpenCodeEvent(ctx, st, evt); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -734,7 +734,7 @@ func TestIngestOpenCodeAgentNameFromMessageUpdated(t *testing.T) {
 		"project_dir": "/home/user/my-app",
 		"title":       "New session - 2026-04-12",
 		"timestamp":   float64(1712700000000),
-	}, "")
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -755,7 +755,7 @@ func TestIngestOpenCodeAgentNameFromMessageUpdated(t *testing.T) {
 		"message_id":   "msg-1",
 		"agent_name":   "User main agent",
 		"timestamp":    float64(1712700001000),
-	}, "")
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -775,7 +775,7 @@ func TestIngestOpenCodeAgentNameFromMessageUpdated(t *testing.T) {
 		"message_role": "user",
 		"message_id":   "msg-2",
 		"timestamp":    float64(1712700002000),
-	}, "")
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -800,7 +800,7 @@ func TestIngestOpenCodeChildSessionAgentNamePreserved(t *testing.T) {
 		"project_dir": "/home/user/my-app",
 		"title":       "main",
 		"timestamp":   float64(1712700000000),
-	}, "")
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -813,7 +813,7 @@ func TestIngestOpenCodeChildSessionAgentNamePreserved(t *testing.T) {
 		"project_dir":       "/home/user/my-app",
 		"title":             "Map affected modules (@subagent1 subagent)",
 		"timestamp":         float64(1712700001000),
-	}, "")
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -832,7 +832,7 @@ func TestIngestOpenCodeChildSessionAgentNamePreserved(t *testing.T) {
 		{"event": "tool.execute.before", "session_id": "child-1", "tool": "Read", "call_id": "c1", "timestamp": float64(1712700003000)},
 		{"event": "tool.execute.after", "session_id": "child-1", "tool": "Read", "call_id": "c1", "timestamp": float64(1712700004000)},
 	} {
-		if _, err := IngestOpenCodeEvent(ctx, st, evt, ""); err != nil {
+		if _, err := IngestOpenCodeEvent(ctx, st, evt); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -843,31 +843,6 @@ func TestIngestOpenCodeChildSessionAgentNamePreserved(t *testing.T) {
 	}
 	if agent.Name != "subagent1" {
 		t.Fatalf("after follow-up events: got agent name=%q, want subagent1", agent.Name)
-	}
-}
-
-func TestIngestProjectSlugOverride(t *testing.T) {
-	st := testStore(t)
-	ctx := context.Background()
-
-	result, err := IngestClaudeEvent(ctx, st, map[string]any{
-		"hook_event_name": "SessionStart",
-		"session_id":      "sess-1",
-		"meta":            map[string]any{"timestamp": float64(1712700000000)},
-	}, "my-custom-project")
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	proj, err := st.Read().GetProjectBySlug(ctx, "my-custom-project")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if proj == nil {
-		t.Fatal("project not created")
-	}
-	if result.ProjectID != proj.ID {
-		t.Fatalf("project ID mismatch: result=%d proj=%d", result.ProjectID, proj.ID)
 	}
 }
 
@@ -882,7 +857,7 @@ func TestIngestCrossRuntimeProjectUnification(t *testing.T) {
 		"transcript_path": "/home/user/.claude/projects/-home-user-projects-lazyagent2/session.jsonl",
 		"cwd":             "/home/user/projects/lazyagent2",
 		"meta":            map[string]any{"timestamp": float64(1712700000000)},
-	}, "")
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -894,7 +869,7 @@ func TestIngestCrossRuntimeProjectUnification(t *testing.T) {
 		"project_dir": "/home/user/projects/lazyagent2",
 		"title":       "main",
 		"timestamp":   float64(1712700001000),
-	}, "")
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -916,7 +891,7 @@ func TestIngestCrossRuntimeProjectUnificationOpenCodeFirst(t *testing.T) {
 		"project_dir": "/home/user/projects/myapp",
 		"title":       "main",
 		"timestamp":   float64(1712700000000),
-	}, "")
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -928,7 +903,7 @@ func TestIngestCrossRuntimeProjectUnificationOpenCodeFirst(t *testing.T) {
 		"transcript_path": "/home/user/.claude/projects/-home-user-projects-myapp/session.jsonl",
 		"cwd":             "/home/user/projects/myapp",
 		"meta":            map[string]any{"timestamp": float64(1712700001000)},
-	}, "")
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -990,7 +965,7 @@ func TestUpsertSessionParentIDUpdatedOnConflict(t *testing.T) {
 		"project_dir": "/home/user/my-app",
 		"title":       "worker",
 		"timestamp":   float64(1712700000000),
-	}, "")
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1011,7 +986,7 @@ func TestUpsertSessionParentIDUpdatedOnConflict(t *testing.T) {
 		"project_dir": "/home/user/my-app",
 		"title":       "main",
 		"timestamp":   float64(1712700001000),
-	}, "")
+	})
 
 	_, err = IngestOpenCodeEvent(ctx, st, map[string]any{
 		"event":             "session.updated",
@@ -1020,7 +995,7 @@ func TestUpsertSessionParentIDUpdatedOnConflict(t *testing.T) {
 		"project_dir":       "/home/user/my-app",
 		"title":             "worker",
 		"timestamp":         float64(1712700002000),
-	}, "")
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1046,7 +1021,7 @@ func TestUpsertSessionParentIDPreservedWhenNewEventOmitsIt(t *testing.T) {
 		"project_dir": "/home/user/my-app",
 		"title":       "main",
 		"timestamp":   float64(1712700000000),
-	}, "")
+	})
 
 	IngestOpenCodeEvent(ctx, st, map[string]any{
 		"event":             "session.created",
@@ -1055,7 +1030,7 @@ func TestUpsertSessionParentIDPreservedWhenNewEventOmitsIt(t *testing.T) {
 		"project_dir":       "/home/user/my-app",
 		"title":             "worker",
 		"timestamp":         float64(1712700001000),
-	}, "")
+	})
 
 	// 2. A follow-up event for the child WITHOUT parent_session_id.
 	_, err := IngestOpenCodeEvent(ctx, st, map[string]any{
@@ -1064,7 +1039,7 @@ func TestUpsertSessionParentIDPreservedWhenNewEventOmitsIt(t *testing.T) {
 		"project_dir": "/home/user/my-app",
 		"title":       "worker updated",
 		"timestamp":   float64(1712700002000),
-	}, "")
+	})
 	if err != nil {
 		t.Fatal(err)
 	}

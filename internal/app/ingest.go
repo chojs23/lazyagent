@@ -21,7 +21,7 @@ type IngestResult struct {
 	ProjectID int64  `json:"project_id"`
 }
 
-func IngestClaudeEvent(ctx context.Context, st *store.Store, payload map[string]any, projectSlugOverride string) (IngestResult, error) {
+func IngestClaudeEvent(ctx context.Context, st *store.Store, payload map[string]any) (IngestResult, error) {
 	parsed := claude.ParseRawEvent(payload)
 	result := IngestResult{SessionID: parsed.SessionID}
 
@@ -36,7 +36,7 @@ func IngestClaudeEvent(ctx context.Context, st *store.Store, payload map[string]
 			projectID = existingSession.ProjectID
 		} else {
 			cwd := str(payload["cwd"])
-			id, err := resolveProject(ctx, q, projectSlugOverride, parsed.TranscriptPath, cwd)
+			id, err := resolveProject(ctx, q, parsed.TranscriptPath, cwd)
 			if err != nil {
 				return err
 			}
@@ -191,7 +191,7 @@ func IngestClaudeEvent(ctx context.Context, st *store.Store, payload map[string]
 	return result, err
 }
 
-func IngestOpenCodeEvent(ctx context.Context, st *store.Store, payload map[string]any, projectSlugOverride string) (IngestResult, error) {
+func IngestOpenCodeEvent(ctx context.Context, st *store.Store, payload map[string]any) (IngestResult, error) {
 	parsed := opencode.ParseRawEvent(payload)
 	result := IngestResult{SessionID: parsed.SessionID}
 
@@ -205,15 +205,11 @@ func IngestOpenCodeEvent(ctx context.Context, st *store.Store, payload map[strin
 		if existingSession != nil {
 			projectID = existingSession.ProjectID
 		} else {
-			slug := projectSlugOverride
-			if slug == "" && parsed.ProjectName != "" {
-				slug = deriveSlug(parsed.ProjectName)
-			}
 			cwd := str(payload["cwd"])
 			if cwd == "" {
 				cwd = str(payload["project_dir"])
 			}
-			id, err := resolveProject(ctx, q, slug, parsed.TranscriptPath, cwd)
+			id, err := resolveProject(ctx, q, parsed.TranscriptPath, cwd)
 			if err != nil {
 				return err
 			}
@@ -225,8 +221,8 @@ func IngestOpenCodeEvent(ctx context.Context, st *store.Store, payload map[strin
 			parentSessionID = existingSession.ParentSessionID
 		}
 		title := str(payload["title"])
-		slug := title
-		if err := q.UpsertSession(ctx, parsed.SessionID, parentSessionID, projectID, slug, "opencode", parsed.Metadata, parsed.Timestamp, parsed.TranscriptPath); err != nil {
+		sessionSlug := title
+		if err := q.UpsertSession(ctx, parsed.SessionID, parentSessionID, projectID, sessionSlug, "opencode", parsed.Metadata, parsed.Timestamp, parsed.TranscriptPath); err != nil {
 			return err
 		}
 
@@ -409,7 +405,7 @@ func IngestCodexEvent(ctx context.Context, st *store.Store, payload map[string]a
 			projectID = existingSession.ProjectID
 		} else {
 			cwd := str(payload["cwd"])
-			id, err := resolveProject(ctx, q, "", parsed.TranscriptPath, cwd)
+			id, err := resolveProject(ctx, q, parsed.TranscriptPath, cwd)
 			if err != nil {
 				return err
 			}
@@ -506,7 +502,7 @@ func IngestCodexEvent(ctx context.Context, st *store.Store, payload map[string]a
 	return result, err
 }
 
-func resolveProject(ctx context.Context, q *store.Queries, slugOverride, transcriptPath, cwd string) (int64, error) {
+func resolveProject(ctx context.Context, q *store.Queries, transcriptPath, cwd string) (int64, error) {
 	// Try matching by working directory first. This is the most reliable
 	// cross-runtime match: both Claude and OpenCode provide the actual
 	// project directory (cwd / project_dir), while their transcript paths
@@ -519,24 +515,46 @@ func resolveProject(ctx context.Context, q *store.Queries, slugOverride, transcr
 		if proj != nil {
 			return proj.ID, nil
 		}
-	}
 
-	if slugOverride != "" {
-		proj, err := q.GetProjectBySlug(ctx, slugOverride)
-		if err != nil {
-			return 0, err
-		}
-		if proj != nil {
-			if cwd != "" && proj.Directory == "" {
-				q.UpdateProjectDirectory(ctx, proj.ID, cwd)
+		// OpenCode often provides a working directory without a transcript path.
+		// In that case, derive a stable slug from the directory so brand-new
+		// projects still get a meaningful project entry instead of falling back to
+		// `unknown`.
+		candidates := deriveSlugCandidates(cwd)
+		for _, c := range candidates {
+			proj, err := q.GetProjectBySlug(ctx, c)
+			if err != nil {
+				return 0, err
 			}
-			return proj.ID, nil
+			if proj != nil {
+				if proj.Directory == "" {
+					q.UpdateProjectDirectory(ctx, proj.ID, cwd)
+				}
+				return proj.ID, nil
+			}
 		}
-		transcriptDir := ""
-		if transcriptPath != "" {
-			transcriptDir = extractProjectDir(transcriptPath)
+
+		for _, c := range candidates {
+			avail, err := q.IsSlugAvailable(ctx, c)
+			if err != nil {
+				return 0, err
+			}
+			if avail {
+				return q.CreateProject(ctx, c, c, cwd, "")
+			}
 		}
-		return q.CreateProject(ctx, slugOverride, slugOverride, cwd, transcriptDir)
+
+		base := candidates[0]
+		for suffix := 2; ; suffix++ {
+			c := fmt.Sprintf("%s-%d", base, suffix)
+			avail, err := q.IsSlugAvailable(ctx, c)
+			if err != nil {
+				return 0, err
+			}
+			if avail {
+				return q.CreateProject(ctx, c, c, cwd, "")
+			}
+		}
 	}
 
 	if transcriptPath != "" {
@@ -592,14 +610,6 @@ func extractProjectDir(transcriptPath string) string {
 		return filepath.Dir(cleaned)
 	}
 	return cleaned
-}
-
-func deriveSlug(pathOrDir string) string {
-	candidates := deriveSlugCandidates(pathOrDir)
-	if len(candidates) > 0 {
-		return candidates[0]
-	}
-	return "unknown"
 }
 
 func deriveSlugCandidates(pathOrDir string) []string {

@@ -101,10 +101,9 @@ This writes the OpenCode plugin to:
 ~/.config/opencode/plugins/lazyagent.ts
 ```
 
-Set environment variables for the plugin if you want:
+Set an environment variable for the plugin if you want:
 
 - `LAZYAGENT_BIN` to point at a specific `lazyagent` binary
-- `LAZYAGENT_PROJECT_SLUG` to override project slug detection
 
 ## Build and test
 
@@ -175,6 +174,8 @@ Run the lazyagent:
 lazyagent
 ```
 
+Project grouping is automatic. `lazyagent` first tries to match sessions by working directory such as `cwd` or `project_dir`, then falls back to transcript path information when needed. That means Claude, Codex, and OpenCode sessions from the same worktree are usually grouped under the same project in the TUI.
+
 ### Commands
 
 #### `lazyagent init <claude|opencode|codex>`
@@ -199,7 +200,7 @@ Examples:
 
 ```bash
 lazyagent ingest --runtime claude
-lazyagent ingest --runtime opencode --project-slug my-project
+lazyagent ingest --runtime opencode
 lazyagent ingest --runtime codex --quiet
 ```
 
