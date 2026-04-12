@@ -9,10 +9,12 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"runtime/debug"
 	"strings"
 
 	"github.com/BurntSushi/toml"
 	"github.com/chojs23/lazyagent/internal/app"
+	"github.com/chojs23/lazyagent/internal/applog"
 	"github.com/chojs23/lazyagent/internal/config"
 	"github.com/chojs23/lazyagent/internal/store"
 	"github.com/chojs23/lazyagent/internal/tui"
@@ -23,10 +25,32 @@ import (
 var openCodePluginTS string
 
 func main() {
+	initLogger()
+	defer func() {
+		if recovered := recover(); recovered != nil {
+			report := applog.Panic("lazyagent panic", recovered)
+			if report == "" {
+				report = fmt.Sprintf("panic: %v\n%s", recovered, strings.TrimRight(string(debug.Stack()), "\n"))
+			}
+			fmt.Fprintln(os.Stderr, report)
+			os.Exit(2)
+		}
+	}()
+
 	if err := run(); err != nil {
+		applog.Error("lazyagent command failed", err)
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
+}
+
+func initLogger() {
+	logger, err := applog.NewDefault()
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "lazyagent logger init failed:", err)
+		return
+	}
+	applog.SetDefault(logger)
 }
 
 func run() error {
