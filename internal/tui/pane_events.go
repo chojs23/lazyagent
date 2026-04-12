@@ -150,8 +150,7 @@ func (e *eventsModel) view(width, height int, focused bool, agentMap map[string]
 		lines[i] = hScrollLine(l, e.hScroll, textWidth)
 	}
 
-	content := headerLine + "\n" + strings.Join(lines, "\n")
-	return paneStyle(focused).Width(width).Height(height).Render(content)
+	return renderPane(width, height, focused, headerLine, lines)
 }
 
 func (e *eventsModel) renderEventLine(ev model.Event, index int, selected bool, agentMap map[string]agentInfo, maxW int, totalDigits int) string {
