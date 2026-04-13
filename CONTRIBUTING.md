@@ -42,9 +42,10 @@ Before opening a PR:
 2. Update documentation when behavior changes.
 3. Add or update tests when needed.
 
-Recommended checks:
+You need to check that your code is properly formatted, tested, and builds successfully.
 
 ```bash
+gofmt -l .
 go test ./...
 go build -o ./bin/lazyagent ./cmd/lazyagent
 ```

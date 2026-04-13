@@ -28,6 +28,15 @@ jobs:
         with:
           go-version-file: go.mod
 
+      - name: Check formatting
+        run: |
+          diff=$(gofmt -l .)
+          if [ -n "$diff" ]; then
+            echo "Files not formatted:"
+            echo "$diff"
+            exit 1
+          fi
+
       - name: Run Go tests
         run: go test ./...
 
