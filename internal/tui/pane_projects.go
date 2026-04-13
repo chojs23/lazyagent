@@ -2,6 +2,7 @@ package tui
 
 import (
 	"fmt"
+	"strings"
 
 	"charm.land/lipgloss/v2"
 
@@ -87,7 +88,11 @@ func buildProjectSessionLabel(indent, tree string, sess model.Session) string {
 	case "codex":
 		rt = "X"
 	}
-	return fmt.Sprintf("%s%s[%s] %s - %s", indent, tree, rt, formatTime(sess.StartedAt), shortID(sess.ID))
+	name := shortID(sess.ID)
+	if slug := strings.TrimSpace(firstLine(sess.Slug)); slug != "" {
+		name = slug
+	}
+	return fmt.Sprintf("%s%s[%s] %s - %s", indent, tree, rt, formatTime(sess.StartedAt), name)
 }
 
 func (p *projectsModel) moveUp() {

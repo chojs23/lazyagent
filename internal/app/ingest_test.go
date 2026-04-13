@@ -1077,6 +1077,133 @@ func TestIngestCrossRuntimeProjectUnificationOpenCodeFirst(t *testing.T) {
 	}
 }
 
+func TestIngestCodexFirstUserPromptSetsSessionSlug(t *testing.T) {
+	st := testStore(t)
+	ctx := context.Background()
+
+	_, err := IngestCodexEvent(ctx, st, map[string]any{
+		"hook_event_name": "SessionStart",
+		"session_id":      "codex-1",
+		"transcript_path": "/tmp/codex-1.jsonl",
+		"cwd":             "/home/user/project",
+		"model":           "gpt-5.4",
+		"permission_mode": "default",
+		"source":          "cli",
+		"timestamp":       float64(1712700000000),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	_, err = IngestCodexEvent(ctx, st, map[string]any{
+		"hook_event_name": "UserPromptSubmit",
+		"session_id":      "codex-1",
+		"transcript_path": "/tmp/codex-1.jsonl",
+		"cwd":             "/home/user/project",
+		"model":           "gpt-5.4",
+		"permission_mode": "default",
+		"turn_id":         "turn-1",
+		"prompt":          "fix broken filtered paging\nwith a regression test",
+		"timestamp":       float64(1712700001000),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	session, err := st.Read().GetSessionByID(ctx, "codex-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if session == nil {
+		t.Fatal("session not found")
+	}
+	if session.Slug != "fix broken filtered paging" {
+		t.Fatalf("slug=%q, want first prompt line", session.Slug)
+	}
+	if session.Runtime != "codex" {
+		t.Fatalf("runtime=%q, want codex", session.Runtime)
+	}
+
+	events, err := st.Read().ListEventsForSession(ctx, "codex-1", model.EventFilter{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(events) != 2 {
+		t.Fatalf("got %d events, want 2", len(events))
+	}
+	if events[1].Subtype != "UserPromptSubmit" {
+		t.Fatalf("subtype=%q, want UserPromptSubmit", events[1].Subtype)
+	}
+
+	var payload map[string]any
+	if err := json.Unmarshal([]byte(events[1].Payload), &payload); err != nil {
+		t.Fatal(err)
+	}
+	if payload["prompt"] != "fix broken filtered paging\nwith a regression test" {
+		t.Fatalf("prompt=%v, want original prompt preserved", payload["prompt"])
+	}
+}
+
+func TestIngestCodexLaterPromptDoesNotOverwriteExistingSlug(t *testing.T) {
+	st := testStore(t)
+	ctx := context.Background()
+
+	_, err := IngestCodexEvent(ctx, st, map[string]any{
+		"hook_event_name": "SessionStart",
+		"session_id":      "codex-2",
+		"transcript_path": "/tmp/codex-2.jsonl",
+		"cwd":             "/home/user/project",
+		"model":           "gpt-5.4",
+		"permission_mode": "default",
+		"source":          "cli",
+		"timestamp":       float64(1712700000000),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	_, err = IngestCodexEvent(ctx, st, map[string]any{
+		"hook_event_name": "UserPromptSubmit",
+		"session_id":      "codex-2",
+		"transcript_path": "/tmp/codex-2.jsonl",
+		"cwd":             "/home/user/project",
+		"model":           "gpt-5.4",
+		"permission_mode": "default",
+		"turn_id":         "turn-1",
+		"prompt":          "first codex prompt",
+		"timestamp":       float64(1712700000500),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	_, err = IngestCodexEvent(ctx, st, map[string]any{
+		"hook_event_name": "UserPromptSubmit",
+		"session_id":      "codex-2",
+		"transcript_path": "/tmp/codex-2.jsonl",
+		"cwd":             "/home/user/project",
+		"model":           "gpt-5.4",
+		"permission_mode": "default",
+		"turn_id":         "turn-2",
+		"prompt":          "second codex prompt",
+		"timestamp":       float64(1712700001000),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	session, err := st.Read().GetSessionByID(ctx, "codex-2")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if session == nil {
+		t.Fatal("session not found")
+	}
+	if session.Slug != "first codex prompt" {
+		t.Fatalf("slug=%q, want first codex prompt", session.Slug)
+	}
+}
+
 func TestDeriveSlugCandidates(t *testing.T) {
 	cases := []struct {
 		input string
