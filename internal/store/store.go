@@ -257,7 +257,7 @@ func (q *Queries) ListProjects(ctx context.Context) ([]model.Project, error) {
 		SELECT p.id, p.slug, p.name, COALESCE(p.directory,''), COALESCE(p.transcript_path,''), COALESCE(p.metadata,''),
 			COUNT(DISTINCT s.id), p.created_at, p.updated_at
 		FROM projects p
-		LEFT JOIN sessions s ON s.project_id = p.id
+		LEFT JOIN sessions s ON s.project_id = p.id AND (s.parent_session_id IS NULL OR s.parent_session_id = '')
 		GROUP BY p.id
 		ORDER BY p.name ASC`)
 	if err != nil {

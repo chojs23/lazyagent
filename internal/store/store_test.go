@@ -281,3 +281,49 @@ func TestListRecentSessionsStaysInStartedAtOrder(t *testing.T) {
 		t.Fatalf("expected project session order [newer older], got [%s %s]", projectSessions[0].ID, projectSessions[1].ID)
 	}
 }
+
+func TestListProjectsCountsOnlyRootSessions(t *testing.T) {
+	st := testStore(t)
+	ctx := context.Background()
+
+	var rootProjectID int64
+	err := st.WithTx(ctx, func(q *Queries) error {
+		var err error
+		rootProjectID, err = q.CreateProject(ctx, "root-only-count", "Root Only", "/tmp/root-only", "/tmp/root-only-transcript")
+		if err != nil {
+			return err
+		}
+		if _, err := q.CreateProject(ctx, "empty-proj", "Empty", "/tmp/empty", "/tmp/empty-transcript"); err != nil {
+			return err
+		}
+		if err := q.UpsertSession(ctx, "root-1", "", rootProjectID, "root-1", "claude", nil, 1000, ""); err != nil {
+			return err
+		}
+		if err := q.UpsertSession(ctx, "child-1", "root-1", rootProjectID, "child-1", "claude", nil, 2000, ""); err != nil {
+			return err
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	projects, err := st.Read().ListProjects(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(projects) != 2 {
+		t.Fatalf("expected 2 projects, got %d", len(projects))
+	}
+
+	counts := map[string]int64{}
+	for _, project := range projects {
+		counts[project.Slug] = project.SessionCount
+	}
+	if counts["root-only-count"] != 1 {
+		t.Fatalf("root-only-count session count = %d, want 1", counts["root-only-count"])
+	}
+	if counts["empty-proj"] != 0 {
+		t.Fatalf("empty-proj session count = %d, want 0", counts["empty-proj"])
+	}
+}
