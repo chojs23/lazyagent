@@ -31,6 +31,13 @@ func IngestClaudeEvent(ctx context.Context, st *store.Store, payload map[string]
 			return err
 		}
 
+		// Skip if session already belongs to a different runtime (e.g. opencode).
+		// OpenCode internally uses Claude Code, so Claude hooks fire with the
+		// same session ID. Ingesting those events would create duplicates.
+		if existingSession != nil && existingSession.Runtime != "" && existingSession.Runtime != "claude" {
+			return nil
+		}
+
 		var projectID int64
 		if existingSession != nil {
 			projectID = existingSession.ProjectID
