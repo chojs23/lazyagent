@@ -156,7 +156,6 @@ func (s *Store) init(ctx context.Context) error {
 		`CREATE INDEX IF NOT EXISTS idx_events_tool_use_id ON events(tool_use_id)`,
 		`CREATE INDEX IF NOT EXISTS idx_agents_session ON agents(session_id)`,
 		`CREATE INDEX IF NOT EXISTS idx_agents_parent ON agents(parent_agent_id)`,
-		`CREATE INDEX IF NOT EXISTS idx_sessions_parent ON sessions(parent_session_id)`,
 		`CREATE INDEX IF NOT EXISTS idx_pending_agent_queue_session ON pending_agent_queue(session_id, id)`,
 	}
 	for _, stmt := range ddl {
@@ -176,7 +175,8 @@ func (s *Store) init(ctx context.Context) error {
 		s.db.ExecContext(ctx, m) // ignore errors (column may already exist)
 	}
 
-	// idempotent index creation for new columns
+	// idempotent index creation for columns added by migrations
+	s.db.ExecContext(ctx, `CREATE INDEX IF NOT EXISTS idx_sessions_parent ON sessions(parent_session_id)`)
 	s.db.ExecContext(ctx, `CREATE UNIQUE INDEX IF NOT EXISTS idx_projects_directory ON projects(directory) WHERE directory IS NOT NULL`)
 
 	// Backfill: mark agents as stopped when evidence of completion exists.
