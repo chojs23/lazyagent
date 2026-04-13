@@ -757,6 +757,48 @@ func (q *Queries) InsertEvent(ctx context.Context, event model.Event) (int64, er
 	return res.LastInsertId()
 }
 
+// HasOpenCodeUserMessage returns true when we already recorded an OpenCode
+// `message.updated` event for the given message ID with `message_role = user`.
+// OpenCode splits user prompts across a message-level role event and one or
+// more later part events, so ingest uses this to recognize which text part is
+// the actual user prompt body.
+func (q *Queries) HasOpenCodeUserMessage(ctx context.Context, sessionID, messageID string) (bool, error) {
+	if sessionID == "" || messageID == "" {
+		return false, nil
+	}
+	var exists bool
+	err := q.db.QueryRowContext(ctx, `
+		SELECT EXISTS(
+			SELECT 1
+			FROM events
+			WHERE session_id = ?
+				AND subtype = 'MessageUpdated'
+				AND json_extract(payload, '$.message_role') = 'user'
+				AND json_extract(payload, '$.message_id') = ?
+		)`, sessionID, messageID).Scan(&exists)
+	return exists, err
+}
+
+// HasOpenCodeNormalizedUserPrompt returns true once we already converted the
+// first text part for an OpenCode user message into `UserPromptSubmit`.
+// Later text parts for the same message should stay as `PartUpdated` so file
+// attachment expansions or synthetic helper text do not create duplicate turns.
+func (q *Queries) HasOpenCodeNormalizedUserPrompt(ctx context.Context, sessionID, messageID string) (bool, error) {
+	if sessionID == "" || messageID == "" {
+		return false, nil
+	}
+	var exists bool
+	err := q.db.QueryRowContext(ctx, `
+		SELECT EXISTS(
+			SELECT 1
+			FROM events
+			WHERE session_id = ?
+				AND subtype = 'UserPromptSubmit'
+				AND json_extract(payload, '$.message_id') = ?
+		)`, sessionID, messageID).Scan(&exists)
+	return exists, err
+}
+
 func (q *Queries) CountEventsForSession(ctx context.Context, sessionID string) (int, error) {
 	var count int
 	err := q.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM events WHERE session_id = ?", sessionID).Scan(&count)
