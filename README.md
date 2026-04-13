@@ -2,11 +2,13 @@
 
 <img width="1613" height="848" alt="lazyagent" src="https://github.com/user-attachments/assets/572adbf9-ee69-486d-a49a-9995bce5597f" />
 
-`lazyagent` is a terminal TUI app for watching what Claude, Codex, and OpenCode sessions are doing.
-
-It collects runtime events, stores them in SQLite, and shows them in a structured interface so you can inspect projects, sessions, agents, subagents, tools, prompts, outputs, and status changes without digging through raw hook payloads.
+`lazyagent` is a terminal TUI app for watching what ai agents are doing. You can inspect projects, sessions, agents, subagents, tools, prompts and outputs in one place.
 
 The TUI is built for day to day observability. You can see which session belongs to which project, which agent or subagent is active, what tool ran, and what happened next.
+
+It also helps you check whether each agent is doing the work that fits its role, so it is easier to spot when a run goes off track.
+
+> lazyagent is still early in development, some breaking changes may happen.
 
 ## Installation
 
@@ -250,7 +252,7 @@ By default, `lazyagent` stores data under:
 ~/.lazyagent
 ```
 
-Default database path:
+Default database path(SQLite):
 
 ```text
 ~/.lazyagent/observe.db
