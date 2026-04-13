@@ -21,13 +21,13 @@ var (
 	activePane   = lipgloss.NewStyle().Border(lipgloss.NormalBorder()).BorderForeground(colorCyan).Padding(0, 1)
 	inactivePane = lipgloss.NewStyle().Border(lipgloss.NormalBorder()).BorderForeground(colorGray).Padding(0, 1)
 
-	titleStyle     = lipgloss.NewStyle().Bold(true).Foreground(colorWhite)
-	subtitleStyle  = lipgloss.NewStyle().Foreground(colorGray)
+	titleStyle          = lipgloss.NewStyle().Bold(true).Foreground(colorWhite)
+	subtitleStyle       = lipgloss.NewStyle().Foreground(colorGray)
 	selectedStyle       = lipgloss.NewStyle().Bold(true).Foreground(colorGreen)
 	cursorStyle         = lipgloss.NewStyle().Bold(true).Background(lipgloss.Color("25")).Foreground(colorWhite)
 	cursorSelectedStyle = lipgloss.NewStyle().Bold(true).Background(lipgloss.Color("25")).Foreground(colorGreen)
-	dimStyle       = lipgloss.NewStyle().Foreground(colorGray)
-	statusBarStyle = lipgloss.NewStyle().Foreground(colorDimWhite)
+	dimStyle            = lipgloss.NewStyle().Foreground(colorGray)
+	statusBarStyle      = lipgloss.NewStyle().Foreground(colorDimWhite)
 
 	agentColors = []color.Color{
 		colorCyan, colorMagenta, colorYellow, colorGreen, colorBlue, colorOrange,
@@ -64,7 +64,6 @@ func subtypeColor(subtype string) color.Color {
 		return colorWhite
 	}
 }
-
 
 func agentColor(index int) color.Color {
 	if index < 0 {
