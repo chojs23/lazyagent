@@ -1,6 +1,6 @@
 # lazyagent
 
-<img width="1613" height="848" alt="lazyagent" src="https://github.com/user-attachments/assets/572adbf9-ee69-486d-a49a-9995bce5597f" />
+<img width="1613" height="848" alt="lazyagent" src="./docs/screenshot.png" />
 
 `lazyagent` is a terminal TUI app for watching what ai agents are doing. You can inspect projects, sessions, agents, subagents, tools, prompts and outputs in one place.
 
