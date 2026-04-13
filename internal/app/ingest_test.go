@@ -2,10 +2,12 @@ package app
 
 import (
 	"context"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"testing"
 
+	"github.com/chojs23/lazyagent/internal/model"
 	"github.com/chojs23/lazyagent/internal/store"
 )
 
@@ -786,6 +788,168 @@ func TestIngestOpenCodeAgentNameFromMessageUpdated(t *testing.T) {
 	}
 	if agent.Name != "User main agent" {
 		t.Fatalf("after user message: got name=%q, want 'User main agent'", agent.Name)
+	}
+}
+
+func TestIngestOpenCodeUserTextPartNormalizesToUserPromptSubmit(t *testing.T) {
+	st := testStore(t)
+	ctx := context.Background()
+
+	_, err := IngestOpenCodeEvent(ctx, st, map[string]any{
+		"event":       "session.created",
+		"session_id":  "root-1",
+		"project_dir": "/home/user/my-app",
+		"title":       "New session - 2026-04-12",
+		"timestamp":   float64(1712700000000),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	_, err = IngestOpenCodeEvent(ctx, st, map[string]any{
+		"event":        "message.updated",
+		"session_id":   "root-1",
+		"message_role": "user",
+		"message_id":   "msg-user-1",
+		"timestamp":    float64(1712700001000),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	_, err = IngestOpenCodeEvent(ctx, st, map[string]any{
+		"event":      "message.part.updated",
+		"session_id": "root-1",
+		"part_type":  "text",
+		"part_id":    "part-1",
+		"message_id": "msg-user-1",
+		"text":       "please inspect the parser",
+		"timestamp":  float64(1712700002000),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	events, err := st.Read().ListEventsForSession(ctx, "root-1", model.EventFilter{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(events) != 3 {
+		t.Fatalf("got %d events, want 3", len(events))
+	}
+
+	last := events[len(events)-1]
+	if last.Type != "user" {
+		t.Fatalf("last type=%q, want user", last.Type)
+	}
+	if last.Subtype != "UserPromptSubmit" {
+		t.Fatalf("last subtype=%q, want UserPromptSubmit", last.Subtype)
+	}
+
+	var payload map[string]any
+	if err := json.Unmarshal([]byte(last.Payload), &payload); err != nil {
+		t.Fatal(err)
+	}
+	if payload["prompt"] != "please inspect the parser" {
+		t.Fatalf("prompt=%v, want prompt text", payload["prompt"])
+	}
+	if payload["message_id"] != "msg-user-1" {
+		t.Fatalf("message_id=%v, want msg-user-1", payload["message_id"])
+	}
+	if payload["message_role"] != "user" {
+		t.Fatalf("message_role=%v, want user", payload["message_role"])
+	}
+	if payload["event"] != "message.part.updated" {
+		t.Fatalf("event=%v, want original message.part.updated", payload["event"])
+	}
+	if payload["text"] != "please inspect the parser" {
+		t.Fatalf("text=%v, want original text preserved", payload["text"])
+	}
+	if payload["part_type"] != "text" {
+		t.Fatalf("part_type=%v, want text", payload["part_type"])
+	}
+	if events[1].Subtype != "MessageUpdated" {
+		t.Fatalf("message event subtype=%q, want MessageUpdated", events[1].Subtype)
+	}
+	if events[2].Timestamp <= events[1].Timestamp {
+		t.Fatalf("prompt timestamp=%d, want > %d", events[2].Timestamp, events[1].Timestamp)
+	}
+	thread, err := st.Read().GetEventThread(ctx, last.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(thread) != 1 {
+		t.Fatalf("thread len=%d, want 1", len(thread))
+	}
+	if thread[0].Subtype != "UserPromptSubmit" {
+		t.Fatalf("thread[0] subtype=%q, want UserPromptSubmit", thread[0].Subtype)
+	}
+}
+
+func TestIngestOpenCodeOnlyFirstUserTextPartBecomesUserPromptSubmit(t *testing.T) {
+	st := testStore(t)
+	ctx := context.Background()
+
+	_, err := IngestOpenCodeEvent(ctx, st, map[string]any{
+		"event":       "session.created",
+		"session_id":  "root-1",
+		"project_dir": "/home/user/my-app",
+		"title":       "New session - 2026-04-12",
+		"timestamp":   float64(1712700000000),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	_, err = IngestOpenCodeEvent(ctx, st, map[string]any{
+		"event":        "message.updated",
+		"session_id":   "root-1",
+		"message_role": "user",
+		"message_id":   "msg-user-2",
+		"timestamp":    float64(1712700001000),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	for i, text := range []string{"plan the fix", "Called the Read tool with the following input"} {
+		_, err = IngestOpenCodeEvent(ctx, st, map[string]any{
+			"event":      "message.part.updated",
+			"session_id": "root-1",
+			"part_type":  "text",
+			"part_id":    "part-dup-" + string(rune('1'+i)),
+			"message_id": "msg-user-2",
+			"text":       text,
+			"timestamp":  float64(1712700002000 + (i * 1000)),
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	events, err := st.Read().ListEventsForSession(ctx, "root-1", model.EventFilter{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(events) != 4 {
+		t.Fatalf("got %d events, want 4", len(events))
+	}
+	if events[2].Subtype != "UserPromptSubmit" {
+		t.Fatalf("first text subtype=%q, want UserPromptSubmit", events[2].Subtype)
+	}
+	if events[3].Subtype != "PartUpdated" {
+		t.Fatalf("second text subtype=%q, want PartUpdated", events[3].Subtype)
+	}
+
+	var secondPayload map[string]any
+	if err := json.Unmarshal([]byte(events[3].Payload), &secondPayload); err != nil {
+		t.Fatal(err)
+	}
+	if secondPayload["prompt"] != nil {
+		t.Fatalf("second payload prompt=%v, want nil", secondPayload["prompt"])
+	}
+	if secondPayload["text"] != "Called the Read tool with the following input" {
+		t.Fatalf("second payload text=%v, want original text", secondPayload["text"])
 	}
 }
 

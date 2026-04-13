@@ -203,6 +203,10 @@ func IngestOpenCodeEvent(ctx context.Context, st *store.Store, payload map[strin
 	result := IngestResult{SessionID: parsed.SessionID}
 
 	err := st.WithTx(ctx, func(q *store.Queries) error {
+		if err := normalizeOpenCodeUserPrompt(ctx, q, &parsed); err != nil {
+			return err
+		}
+
 		existingSession, err := q.GetSessionByID(ctx, parsed.SessionID)
 		if err != nil {
 			return err
@@ -351,6 +355,56 @@ func IngestOpenCodeEvent(ctx context.Context, st *store.Store, payload map[strin
 	})
 
 	return result, err
+}
+
+// normalizeOpenCodeUserPrompt folds OpenCode's split user-message model into
+// the existing `UserPromptSubmit` event shape used everywhere else.
+//
+// Upstream emits a user prompt as:
+//  1. `message.updated` with `message_role = user`
+//  2. one or more later `message.part.updated` events carrying the parts
+//
+// We treat only the first text part for that message as the real prompt body.
+// Later text parts stay as `PartUpdated` so synthetic attachment-expansion text
+// does not create duplicate user turns.
+func normalizeOpenCodeUserPrompt(ctx context.Context, q *store.Queries, parsed *model.ParsedEvent) error {
+	if parsed.Subtype != "PartUpdated" {
+		return nil
+	}
+	if str(parsed.Metadata["part_type"]) != "text" {
+		return nil
+	}
+
+	messageID := str(parsed.Metadata["message_id"])
+	if messageID == "" {
+		return nil
+	}
+
+	hasUserMessage, err := q.HasOpenCodeUserMessage(ctx, parsed.SessionID, messageID)
+	if err != nil {
+		return fmt.Errorf("find opencode user message: %w", err)
+	}
+	if !hasUserMessage {
+		return nil
+	}
+
+	alreadyNormalized, err := q.HasOpenCodeNormalizedUserPrompt(ctx, parsed.SessionID, messageID)
+	if err != nil {
+		return fmt.Errorf("find normalized opencode prompt: %w", err)
+	}
+	if alreadyNormalized {
+		return nil
+	}
+
+	prompt := str(parsed.Metadata["text"])
+	parsed.Type = "user"
+	parsed.Subtype = "UserPromptSubmit"
+	parsed.Metadata["prompt"] = prompt
+	parsed.Metadata["message_role"] = "user"
+	parsed.Raw["prompt"] = prompt
+	parsed.Raw["message_role"] = "user"
+	parsed.Raw["message_id"] = messageID
+	return nil
 }
 
 // cascadeParentStop checks whether a parent session should be stopped after one
