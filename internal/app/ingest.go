@@ -473,6 +473,15 @@ func IngestCodexEvent(ctx context.Context, st *store.Store, payload map[string]a
 			projectID = id
 		}
 
+		// Codex hook payloads do not carry a dedicated session title, but the
+		// first user prompt is still a good human-readable label. Persist only the
+		// first non-empty prompt we see so later follow-up prompts do not rename
+		// the session out from under the user.
+		sessionSlug := ""
+		if parsed.Subtype == "UserPromptSubmit" && (existingSession == nil || existingSession.Slug == "") {
+			sessionSlug = codexPromptSlug(str(parsed.Metadata["prompt"]))
+		}
+
 		// Read parent-child relationship from the Codex session file.
 		// The hook payload does not include parent info, so we read the
 		// first line of the JSONL transcript file which contains
@@ -503,7 +512,7 @@ func IngestCodexEvent(ctx context.Context, st *store.Store, payload map[string]a
 			}
 		}
 
-		if err := q.UpsertSession(ctx, parsed.SessionID, parentSessionID, projectID, "", "codex", parsed.Metadata, parsed.Timestamp, parsed.TranscriptPath); err != nil {
+		if err := q.UpsertSession(ctx, parsed.SessionID, parentSessionID, projectID, sessionSlug, "codex", parsed.Metadata, parsed.Timestamp, parsed.TranscriptPath); err != nil {
 			return err
 		}
 
@@ -561,6 +570,17 @@ func IngestCodexEvent(ctx context.Context, st *store.Store, payload map[string]a
 	})
 
 	return result, err
+}
+
+func codexPromptSlug(prompt string) string {
+	prompt = strings.TrimSpace(prompt)
+	if prompt == "" {
+		return ""
+	}
+	if idx := strings.IndexByte(prompt, '\n'); idx >= 0 {
+		prompt = prompt[:idx]
+	}
+	return strings.TrimSpace(prompt)
 }
 
 func resolveProject(ctx context.Context, q *store.Queries, transcriptPath, cwd string) (int64, error) {
