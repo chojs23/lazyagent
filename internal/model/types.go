@@ -46,15 +46,15 @@ type Session struct {
 	Slug            string
 	Status          string
 	Runtime         string
-	StartedAt      int64
-	StoppedAt      int64
-	TranscriptPath string
-	Metadata       string
-	EventCount     int64
-	AgentCount     int64
-	LastActivity   int64
-	CreatedAt      int64
-	UpdatedAt      int64
+	StartedAt       int64
+	StoppedAt       int64
+	TranscriptPath  string
+	Metadata        string
+	EventCount      int64
+	AgentCount      int64
+	LastActivity    int64
+	CreatedAt       int64
+	UpdatedAt       int64
 }
 
 type Agent struct {

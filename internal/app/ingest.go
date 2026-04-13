@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"os"
 	"path/filepath"
 	"strings"
 
@@ -50,22 +49,16 @@ func IngestClaudeEvent(ctx context.Context, st *store.Store, payload map[string]
 			projectID = id
 		}
 
-		if err := q.UpsertSession(ctx, parsed.SessionID, "", projectID, parsed.Slug, "claude", parsed.Metadata, parsed.Timestamp, parsed.TranscriptPath); err != nil {
-			return err
+		sessionSlug := ""
+		if parsed.Subtype == "UserPromptSubmit" {
+			candidate := claudePromptSlug(str(parsed.Metadata["prompt"]))
+			if candidate != "" && (existingSession == nil || existingSession.Slug == "" || existingSession.Slug == parsed.Slug) {
+				sessionSlug = candidate
+			}
 		}
 
-		if parsed.TranscriptPath != "" {
-			session, err := q.GetSessionByID(ctx, parsed.SessionID)
-			if err != nil {
-				return err
-			}
-			if session != nil && session.Slug == "" {
-				if slug := loadSessionSlug(parsed.TranscriptPath); slug != "" {
-					if err := q.UpdateSessionSlug(ctx, parsed.SessionID, slug); err != nil {
-						return err
-					}
-				}
-			}
+		if err := q.UpsertSession(ctx, parsed.SessionID, "", projectID, sessionSlug, "claude", parsed.Metadata, parsed.Timestamp, parsed.TranscriptPath); err != nil {
+			return err
 		}
 
 		rootAgentID := parsed.SessionID
@@ -734,25 +727,29 @@ func deriveSlugCandidates(pathOrDir string) []string {
 	return candidates
 }
 
-func loadSessionSlug(transcriptPath string) string {
-	data, err := os.ReadFile(transcriptPath)
-	if err != nil {
+func claudePromptSlug(prompt string) string {
+	prompt = strings.TrimSpace(prompt)
+	if prompt == "" {
 		return ""
 	}
-	for _, line := range strings.Split(string(data), "\n") {
-		line = strings.TrimSpace(line)
-		if line == "" || !strings.Contains(line, `"slug"`) {
-			continue
-		}
-		var entry map[string]any
-		if err := json.Unmarshal([]byte(line), &entry); err != nil {
-			continue
-		}
-		if slug := str(entry["slug"]); slug != "" {
-			return slug
-		}
+	if strings.Contains(prompt, "<local-command-caveat>") {
+		return ""
 	}
-	return ""
+	first := strings.TrimSpace(firstLineText(prompt))
+	if first == "" {
+		return ""
+	}
+	if strings.HasPrefix(first, "/") || strings.HasPrefix(first, "<command-name>/") {
+		return ""
+	}
+	return first
+}
+
+func firstLineText(s string) string {
+	if i := strings.IndexByte(s, '\n'); i >= 0 {
+		return s[:i]
+	}
+	return s
 }
 
 func pick(vals ...string) string {

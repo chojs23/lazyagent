@@ -3,7 +3,6 @@ package app
 import (
 	"context"
 	"encoding/json"
-	"os"
 	"path/filepath"
 	"testing"
 
@@ -151,6 +150,123 @@ func TestIngestSessionEnd(t *testing.T) {
 	}
 	if session.Status != "stopped" {
 		t.Fatalf("got status=%q, want stopped", session.Status)
+	}
+}
+
+func TestIngestClaudeDisplaySlugUsesFirstMeaningfulPrompt(t *testing.T) {
+	st := testStore(t)
+	ctx := context.Background()
+	transcriptPath := filepath.Join(t.TempDir(), "claude-session.jsonl")
+
+	_, err := IngestClaudeEvent(ctx, st, map[string]any{
+		"hook_event_name": "SessionStart",
+		"session_id":      "claude-1",
+		"slug":            "elegant-giggling-flame",
+		"transcript_path": transcriptPath,
+		"cwd":             "/home/user/project",
+		"meta":            map[string]any{"timestamp": float64(1712700000000)},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	_, err = IngestClaudeEvent(ctx, st, map[string]any{
+		"hook_event_name": "UserPromptSubmit",
+		"session_id":      "claude-1",
+		"slug":            "elegant-giggling-flame",
+		"transcript_path": transcriptPath,
+		"cwd":             "/home/user/project",
+		"prompt":          "<command-name>/clear</command-name>\n<command-message>clear</command-message>",
+		"meta":            map[string]any{"timestamp": float64(1712700001000)},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	_, err = IngestClaudeEvent(ctx, st, map[string]any{
+		"hook_event_name": "UserPromptSubmit",
+		"session_id":      "claude-1",
+		"slug":            "elegant-giggling-flame",
+		"transcript_path": transcriptPath,
+		"cwd":             "/home/user/project",
+		"prompt":          "investigate the pagination bug\nwith full context",
+		"meta":            map[string]any{"timestamp": float64(1712700002000)},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	_, err = IngestClaudeEvent(ctx, st, map[string]any{
+		"hook_event_name": "UserPromptSubmit",
+		"session_id":      "claude-1",
+		"slug":            "elegant-giggling-flame",
+		"transcript_path": transcriptPath,
+		"cwd":             "/home/user/project",
+		"prompt":          "later follow-up prompt",
+		"meta":            map[string]any{"timestamp": float64(1712700003000)},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	session, err := st.Read().GetSessionByID(ctx, "claude-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if session == nil {
+		t.Fatal("session not found")
+	}
+	if session.Slug != "investigate the pagination bug" {
+		t.Fatalf("display slug=%q, want first meaningful prompt", session.Slug)
+	}
+
+	events, err := st.Read().ListEventsForSession(ctx, "claude-1", model.EventFilter{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(events) != 4 {
+		t.Fatalf("got %d events, want 4", len(events))
+	}
+}
+
+func TestIngestClaudeMeaningfulPromptReplacesLegacyRandomSlug(t *testing.T) {
+	st := testStore(t)
+	ctx := context.Background()
+
+	var projectID int64
+	err := st.WithTx(ctx, func(q *store.Queries) error {
+		var err error
+		projectID, err = q.CreateProject(ctx, "proj", "Project", "/home/user/project", "")
+		if err != nil {
+			return err
+		}
+		return q.UpsertSession(ctx, "claude-legacy", "", projectID, "quirky-doodling-zephyr", "claude", nil, 1712700000000, "")
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	_, err = IngestClaudeEvent(ctx, st, map[string]any{
+		"hook_event_name": "UserPromptSubmit",
+		"session_id":      "claude-legacy",
+		"slug":            "quirky-doodling-zephyr",
+		"cwd":             "/home/user/project",
+		"prompt":          "real bug report title",
+		"meta":            map[string]any{"timestamp": float64(1712700001000)},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	session, err := st.Read().GetSessionByID(ctx, "claude-legacy")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if session == nil {
+		t.Fatal("session not found")
+	}
+	if session.Slug != "real bug report title" {
+		t.Fatalf("display slug=%q, want replaced display slug", session.Slug)
 	}
 }
 
@@ -1229,19 +1345,6 @@ func TestExtractProjectDir(t *testing.T) {
 	want := "/home/user/.claude/projects/-home-user-app"
 	if got != want {
 		t.Fatalf("got %q, want %q", got, want)
-	}
-}
-
-func TestLoadSessionSlug(t *testing.T) {
-	dir := t.TempDir()
-	path := filepath.Join(dir, "session.jsonl")
-	os.WriteFile(path, []byte(`{"type":"init"}
-{"slug":"my-session-slug","type":"meta"}
-`), 0o644)
-
-	slug := loadSessionSlug(path)
-	if slug != "my-session-slug" {
-		t.Fatalf("got slug=%q", slug)
 	}
 }
 
