@@ -32,6 +32,9 @@ func ParseRawEvent(raw map[string]any) model.ParsedEvent {
 			p.Metadata[k] = v
 		}
 	}
+	if prompt := str(raw["prompt"]); prompt != "" {
+		p.Metadata["prompt"] = prompt
+	}
 
 	return p
 }

@@ -122,3 +122,19 @@ func TestParseMetadataExtraction(t *testing.T) {
 		t.Fatalf("got version=%v", p.Metadata["version"])
 	}
 }
+
+func TestParseUserPromptSubmitStoresPrompt(t *testing.T) {
+	raw := map[string]any{
+		"hook_event_name": "UserPromptSubmit",
+		"session_id":      "sess-1",
+		"prompt":          "investigate the pagination bug",
+		"meta":            map[string]any{"timestamp": float64(1712700000000)},
+	}
+	p := ParseRawEvent(raw)
+	if p.Type != "user" || p.Subtype != "UserPromptSubmit" {
+		t.Fatalf("got type=%q subtype=%q", p.Type, p.Subtype)
+	}
+	if p.Metadata["prompt"] != "investigate the pagination bug" {
+		t.Fatalf("got prompt=%v", p.Metadata["prompt"])
+	}
+}
