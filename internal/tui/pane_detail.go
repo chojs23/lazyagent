@@ -216,11 +216,34 @@ func (d *detailModel) renderToolDetail(ev *model.Event) string {
 			field("Retry Message", get("retry_message")),
 		)
 	case "SessionDiff":
-		return joinNonEmpty("\n",
+		header := joinNonEmpty("\n",
 			field("Files Changed", get("diff_file_count")),
 			field("Additions", get("diff_additions")),
 			field("Deletions", get("diff_deletions")),
 		)
+		// Show per-file patches if available (OpenCode diff_files)
+		if filesRaw, ok := payload["diff_files"]; ok {
+			if files, ok := filesRaw.([]any); ok {
+				var patches []string
+				for _, f := range files {
+					fm, _ := f.(map[string]any)
+					if fm == nil {
+						continue
+					}
+					filePath := getStr(fm, "file")
+					patch := getStr(fm, "patch")
+					if patch != "" {
+						patches = append(patches, d.renderPatchBlock(filePath, patch, expand))
+					} else if filePath != "" {
+						patches = append(patches, field("File", filePath))
+					}
+				}
+				if len(patches) > 0 {
+					return header + "\n" + strings.Join(patches, "\n")
+				}
+			}
+		}
+		return header
 	case "PermissionReply":
 		return joinNonEmpty("\n",
 			field("Reply", get("reply")),
@@ -319,15 +342,31 @@ func (d *detailModel) renderToolDetail(ev *model.Event) string {
 		)
 
 	case "Edit":
-		filePath := get("file_path")
+		filePath := pick(get("file_path"), get("filePath"))
+		oldStr := pick(get("old_string"), get("oldString"))
+		newStr := pick(get("new_string"), get("newString"))
+
+		// OpenCode PostToolUse: metadata contains a precomputed unified diff
+		metaDiff := ""
+		if meta := asMapSafe(payload["metadata"]); len(meta) > 0 {
+			metaDiff = getStr(meta, "diff")
+		}
+
+		var diffBlock string
+		if oldStr != "" || newStr != "" {
+			diffBlock = d.renderDiffBlock("Diff", filePath, oldStr, newStr, expand)
+		} else if metaDiff != "" {
+			diffBlock = d.renderPatchBlock("Diff", metaDiff, expand)
+		}
+
 		return joinNonEmpty("\n",
 			field("File", filePath),
-			d.renderDiffBlock("Diff", filePath, get("old_string"), get("new_string"), expand),
+			diffBlock,
 			block("Result", response),
 		)
 
 	case "Write":
-		filePath := get("file_path")
+		filePath := pick(get("file_path"), get("filePath"))
 		return joinNonEmpty("\n",
 			field("File", filePath),
 			d.renderAdditionsBlock("Content", filePath, get("content"), expand),
@@ -335,9 +374,12 @@ func (d *detailModel) renderToolDetail(ev *model.Event) string {
 		)
 
 	case "apply_patch":
-		patch := get("input")
+		patch := pick(get("input"), get("patch"), get("patchText"))
+		// OpenCode PostToolUse: metadata contains a precomputed unified diff
 		if patch == "" {
-			patch = get("patch")
+			if meta := asMapSafe(payload["metadata"]); len(meta) > 0 {
+				patch = getStr(meta, "diff")
+			}
 		}
 		return joinNonEmpty("\n",
 			d.renderPatchBlock("Patch", patch, expand),

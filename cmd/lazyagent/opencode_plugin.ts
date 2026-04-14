@@ -94,14 +94,23 @@ function extractEventData(
       const diffs = (props.diff ?? []) as Array<Record<string, unknown>>;
       let additions = 0;
       let deletions = 0;
+      const files: Array<Record<string, unknown>> = [];
       for (const d of diffs) {
         additions += (d.additions as number) || 0;
         deletions += (d.deletions as number) || 0;
+        files.push({
+          file: (d.file as string) || "",
+          patch: (d.patch as string) || "",
+          additions: (d.additions as number) || 0,
+          deletions: (d.deletions as number) || 0,
+          status: (d.status as string) || "modified",
+        });
       }
       return {
         diff_file_count: diffs.length,
         diff_additions: additions,
         diff_deletions: deletions,
+        diff_files: files,
       };
     }
 
