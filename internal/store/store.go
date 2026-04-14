@@ -45,6 +45,16 @@ func (s *Store) Close() error { return s.db.Close() }
 
 func (s *Store) Read() *Queries { return &Queries{db: s.db} }
 
+func (s *Store) ReapStaleSessions(ctx context.Context, maxIdleMs int64) (int, error) {
+	var reaped int
+	err := s.WithTx(ctx, func(q *Queries) error {
+		var err error
+		reaped, err = q.ReapStaleSessions(ctx, maxIdleMs)
+		return err
+	})
+	return reaped, err
+}
+
 func (s *Store) WithTx(ctx context.Context, fn func(*Queries) error) error {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {

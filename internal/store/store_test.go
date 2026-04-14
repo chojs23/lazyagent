@@ -4,6 +4,7 @@ import (
 	"context"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/chojs23/lazyagent/internal/model"
 )
@@ -325,5 +326,87 @@ func TestListProjectsCountsOnlyRootSessions(t *testing.T) {
 	}
 	if counts["empty-proj"] != 0 {
 		t.Fatalf("empty-proj session count = %d, want 0", counts["empty-proj"])
+	}
+}
+
+func TestStoreReapStaleSessionsUsesTransactionalPath(t *testing.T) {
+	st := testStore(t)
+	ctx := context.Background()
+	now := time.Now().UnixMilli()
+
+	var projectID int64
+	err := st.WithTx(ctx, func(q *Queries) error {
+		var err error
+		projectID, err = q.CreateProject(ctx, "reap-proj", "Reap", "/tmp/reap", "/tmp/reap-transcript")
+		if err != nil {
+			return err
+		}
+
+		if err := q.UpsertSession(ctx, "stale-root", "", projectID, "stale-root", "claude", nil, 1, ""); err != nil {
+			return err
+		}
+		if err := q.UpsertSession(ctx, "parent", "", projectID, "parent", "claude", nil, 1, ""); err != nil {
+			return err
+		}
+		if err := q.UpsertSession(ctx, "child", "parent", projectID, "child", "claude", nil, now, ""); err != nil {
+			return err
+		}
+
+		if err := q.UpsertAgent(ctx, "stale-root", "stale-root", "", "Stale Root", "", "main", ""); err != nil {
+			return err
+		}
+		if err := q.UpsertAgent(ctx, "parent", "parent", "", "Parent", "", "main", ""); err != nil {
+			return err
+		}
+		if err := q.UpsertAgent(ctx, "child", "child", "", "Child", "", "main", ""); err != nil {
+			return err
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	reaped, err := st.ReapStaleSessions(ctx, 1000)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if reaped != 1 {
+		t.Fatalf("reaped = %d, want 1", reaped)
+	}
+
+	staleRoot, err := st.Read().GetSessionByID(ctx, "stale-root")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if staleRoot.Status != "stopped" {
+		t.Fatalf("stale-root status = %q, want stopped", staleRoot.Status)
+	}
+	if staleRoot.StoppedAt == 0 {
+		t.Fatal("stale-root should record stopped_at")
+	}
+
+	staleRootAgent, err := st.Read().GetAgentByID(ctx, "stale-root")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if staleRootAgent.Status != "stopped" {
+		t.Fatalf("stale-root agent status = %q, want stopped", staleRootAgent.Status)
+	}
+
+	parent, err := st.Read().GetSessionByID(ctx, "parent")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if parent.Status != "active" {
+		t.Fatalf("parent status = %q, want active", parent.Status)
+	}
+
+	child, err := st.Read().GetSessionByID(ctx, "child")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if child.Status != "active" {
+		t.Fatalf("child status = %q, want active", child.Status)
 	}
 }

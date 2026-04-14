@@ -766,13 +766,14 @@ func (m Model) loadDataCmd() tea.Cmd {
 
 	return func() tea.Msg {
 		ctx := context.Background()
-		q := st.Read()
 
 		// Auto-stop sessions that have been idle for over 5 minutes
 		// with no active child sessions. Handles ungraceful shutdowns.
-		if _, err := q.ReapStaleSessions(ctx, 5*60*1000); err != nil {
+		if _, err := st.ReapStaleSessions(ctx, 5*60*1000); err != nil {
 			return dataMsg{err: err}
 		}
+
+		q := st.Read()
 
 		projects, err := q.ListProjects(ctx)
 		if err != nil {
