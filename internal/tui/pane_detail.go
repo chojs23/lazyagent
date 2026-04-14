@@ -9,7 +9,9 @@ import (
 	"charm.land/bubbles/v2/viewport"
 	"charm.land/lipgloss/v2"
 
+	"github.com/chojs23/lazyagent/internal/jsonutil"
 	"github.com/chojs23/lazyagent/internal/model"
+	"github.com/chojs23/lazyagent/internal/textutil"
 )
 
 type detailModel struct {
@@ -135,18 +137,18 @@ func (d *detailModel) renderToolDetail(ev *model.Event) string {
 	}
 
 	// Claude stores tool parameters in "tool_input", OpenCode in "args".
-	input := asMapSafe(payload["tool_input"])
+	input := jsonutil.MapOrEmpty(payload["tool_input"])
 	if len(input) == 0 {
-		input = asMapSafe(payload["args"])
+		input = jsonutil.MapOrEmpty(payload["args"])
 	}
-	response := prettyJSON(getStr(payload, "tool_response"))
+	response := prettyJSON(jsonutil.GetString(payload, "tool_response"))
 
 	// merge: prefer input fields, fall back to top-level payload
 	get := func(key string) string {
-		if v := getStr(input, key); v != "" {
+		if v := jsonutil.GetString(input, key); v != "" {
 			return v
 		}
-		return getStr(payload, key)
+		return jsonutil.GetString(payload, key)
 	}
 
 	fieldStyle := lipgloss.NewStyle().Foreground(colorCyan).Bold(true)
@@ -233,8 +235,8 @@ func (d *detailModel) renderToolDetail(ev *model.Event) string {
 					if fm == nil {
 						continue
 					}
-					filePath := getStr(fm, "file")
-					patch := getStr(fm, "patch")
+					filePath := jsonutil.GetString(fm, "file")
+					patch := jsonutil.GetString(fm, "patch")
 					if patch != "" {
 						patches = append(patches, d.renderPatchBlock(filePath, patch, expand))
 					} else if filePath != "" {
@@ -326,7 +328,7 @@ func (d *detailModel) renderToolDetail(ev *model.Event) string {
 			field("Description", get("description")),
 			field("CWD", get("cwd")),
 			field("Timeout", get("timeout")),
-			block("Output", firstNonEmpty(response, get("stdout"), get("result"), get("output"))),
+			block("Output", textutil.FirstNonEmpty(response, get("stdout"), get("result"), get("output"))),
 			blockIfPresent("Stderr", get("stderr"), fieldStyle, contentStyle),
 		)
 
@@ -341,18 +343,18 @@ func (d *detailModel) renderToolDetail(ev *model.Event) string {
 		return joinNonEmpty("\n",
 			field("File", get("file_path")),
 			field("Range", rangeStr),
-			block("Content", firstNonEmpty(response, get("content"))),
+			block("Content", textutil.FirstNonEmpty(response, get("content"))),
 		)
 
 	case "Edit":
-		filePath := pick(get("file_path"), get("filePath"))
-		oldStr := pick(get("old_string"), get("oldString"))
-		newStr := pick(get("new_string"), get("newString"))
+		filePath := textutil.FirstNonEmpty(get("file_path"), get("filePath"))
+		oldStr := textutil.FirstNonEmpty(get("old_string"), get("oldString"))
+		newStr := textutil.FirstNonEmpty(get("new_string"), get("newString"))
 
 		// OpenCode PostToolUse: metadata contains a precomputed unified diff
 		metaDiff := ""
-		if meta := asMapSafe(payload["metadata"]); len(meta) > 0 {
-			metaDiff = getStr(meta, "diff")
+		if meta := jsonutil.MapOrEmpty(payload["metadata"]); len(meta) > 0 {
+			metaDiff = jsonutil.GetString(meta, "diff")
 		}
 
 		var diffBlock string
@@ -368,18 +370,18 @@ func (d *detailModel) renderToolDetail(ev *model.Event) string {
 		)
 
 	case "Write":
-		filePath := pick(get("file_path"), get("filePath"))
+		filePath := textutil.FirstNonEmpty(get("file_path"), get("filePath"))
 		return joinNonEmpty("\n",
 			field("File", filePath),
 			d.renderAdditionsBlock("Content", filePath, get("content"), expand),
 		)
 
 	case "apply_patch":
-		patch := pick(get("input"), get("patch"), get("patchText"))
+		patch := textutil.FirstNonEmpty(get("input"), get("patch"), get("patchText"))
 		// OpenCode PostToolUse: metadata contains a precomputed unified diff
 		if patch == "" {
-			if meta := asMapSafe(payload["metadata"]); len(meta) > 0 {
-				patch = getStr(meta, "diff")
+			if meta := jsonutil.MapOrEmpty(payload["metadata"]); len(meta) > 0 {
+				patch = jsonutil.GetString(meta, "diff")
 			}
 		}
 		return joinNonEmpty("\n",
@@ -392,14 +394,14 @@ func (d *detailModel) renderToolDetail(ev *model.Event) string {
 			field("Path", get("path")),
 			field("Glob", get("glob")),
 			field("Type", get("type")),
-			block("Result", firstNonEmpty(response, get("result"))),
+			block("Result", textutil.FirstNonEmpty(response, get("result"))),
 		)
 
 	case "Glob":
 		return joinNonEmpty("\n",
 			field("Pattern", get("pattern")),
 			field("Path", get("path")),
-			block("Result", firstNonEmpty(response, get("result"))),
+			block("Result", textutil.FirstNonEmpty(response, get("result"))),
 		)
 
 	case "Agent":
@@ -409,7 +411,7 @@ func (d *detailModel) renderToolDetail(ev *model.Event) string {
 			field("Model", get("model")),
 			field("Description", get("description")),
 			block("Prompt", get("prompt")),
-			block("Result", firstNonEmpty(response, get("result"))),
+			block("Result", textutil.FirstNonEmpty(response, get("result"))),
 		)
 
 	default:
@@ -555,13 +557,6 @@ func (d *detailModel) renderPatchBlock(label, patch string, expand bool) string 
 	return headerStyle.Render(label+":") + "\n" + strings.Join(lines, "\n")
 }
 
-func asMapSafe(v any) map[string]any {
-	if m, ok := v.(map[string]any); ok {
-		return m
-	}
-	return map[string]any{}
-}
-
 func (d *detailModel) renderGenericDetail(payload map[string]any) string {
 	fieldStyle := lipgloss.NewStyle().Foreground(colorCyan).Bold(true)
 	contentStyle := lipgloss.NewStyle().Foreground(colorDimWhite)
@@ -571,7 +566,7 @@ func (d *detailModel) renderGenericDetail(payload map[string]any) string {
 
 	// show message/content/result first if present
 	for _, key := range []string{"message", "content", "result", "text", "prompt", "error"} {
-		if v := getStr(payload, key); v != "" {
+		if v := jsonutil.GetString(payload, key); v != "" {
 			label := strings.ToUpper(key[:1]) + key[1:]
 			if len(v) > 500 {
 				v = v[:500] + "..."
@@ -607,38 +602,6 @@ func (d *detailModel) view(width, height int, focused bool) string {
 
 	title := titleStyle.Render("Detail")
 	return renderPane(width, height, focused, title, strings.Split(d.viewport.View(), "\n"))
-}
-
-// helpers
-
-func getStr(m map[string]any, key string) string {
-	v, ok := m[key]
-	if !ok || v == nil {
-		return ""
-	}
-	switch val := v.(type) {
-	case string:
-		return val
-	case float64:
-		if val == float64(int64(val)) {
-			return fmt.Sprintf("%d", int64(val))
-		}
-		return fmt.Sprintf("%g", val)
-	case bool:
-		return fmt.Sprintf("%v", val)
-	default:
-		b, _ := json.Marshal(val)
-		return string(b)
-	}
-}
-
-func firstNonEmpty(vals ...string) string {
-	for _, v := range vals {
-		if v != "" {
-			return v
-		}
-	}
-	return ""
 }
 
 func joinNonEmpty(sep string, parts ...string) string {

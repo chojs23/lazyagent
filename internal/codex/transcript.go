@@ -6,8 +6,8 @@ import (
 	"fmt"
 	"os"
 	"strings"
-	"time"
 
+	"github.com/chojs23/lazyagent/internal/jsonutil"
 	"github.com/chojs23/lazyagent/internal/model"
 )
 
@@ -45,7 +45,7 @@ func ReadPatchEvents(sessionID, transcriptPath string) ([]model.ParsedEvent, err
 			continue
 		}
 
-		payloadType := str(payload["type"])
+		payloadType := jsonutil.String(payload["type"])
 		if payloadType == "patch_apply_end" {
 			ev := parsePatchEnd(sessionID, entry.Timestamp, payload)
 			events = append(events, ev)
@@ -56,9 +56,9 @@ func ReadPatchEvents(sessionID, transcriptPath string) ([]model.ParsedEvent, err
 }
 
 func parsePatchEnd(sessionID, timestamp string, payload map[string]any) model.ParsedEvent {
-	callID := str(payload["call_id"])
-	changes := asMap(payload["changes"])
-	stdout := str(payload["stdout"])
+	callID := jsonutil.String(payload["call_id"])
+	changes := jsonutil.Map(payload["changes"])
+	stdout := jsonutil.String(payload["stdout"])
 
 	// Build a combined unified diff from all file changes
 	combinedDiff := buildUnifiedDiff(changes)
@@ -81,7 +81,7 @@ func parsePatchEnd(sessionID, timestamp string, payload map[string]any) model.Pa
 		Subtype:   "PostToolUse",
 		ToolName:  "apply_patch",
 		ToolUseID: callID,
-		Timestamp: parseTS(timestamp),
+		Timestamp: jsonutil.TimestampMillis(timestamp),
 		Metadata:  map[string]any{},
 		Raw:       raw,
 	}
@@ -94,13 +94,13 @@ func buildUnifiedDiff(changes map[string]any) string {
 	}
 	var b strings.Builder
 	for filePath, change := range changes {
-		cm := asMap(change)
-		changeType := str(cm["type"])
+		cm := jsonutil.Map(change)
+		changeType := jsonutil.String(cm["type"])
 		switch changeType {
 		case "add":
 			b.WriteString("--- /dev/null\n")
 			b.WriteString("+++ " + filePath + "\n")
-			content := str(cm["content"])
+			content := jsonutil.String(cm["content"])
 			if content != "" {
 				for _, line := range strings.Split(content, "\n") {
 					b.WriteString("+" + line + "\n")
@@ -109,7 +109,7 @@ func buildUnifiedDiff(changes map[string]any) string {
 		case "delete":
 			b.WriteString("--- " + filePath + "\n")
 			b.WriteString("+++ /dev/null\n")
-			content := str(cm["content"])
+			content := jsonutil.String(cm["content"])
 			if content != "" {
 				for _, line := range strings.Split(content, "\n") {
 					b.WriteString("-" + line + "\n")
@@ -118,7 +118,7 @@ func buildUnifiedDiff(changes map[string]any) string {
 		case "update":
 			b.WriteString("--- " + filePath + "\n")
 			b.WriteString("+++ " + filePath + "\n")
-			diff := str(cm["unified_diff"])
+			diff := jsonutil.String(cm["unified_diff"])
 			if diff != "" {
 				b.WriteString(diff)
 				if !strings.HasSuffix(diff, "\n") {
@@ -128,11 +128,4 @@ func buildUnifiedDiff(changes map[string]any) string {
 		}
 	}
 	return strings.TrimRight(b.String(), "\n")
-}
-
-func parseTS(s string) int64 {
-	if t, err := time.Parse(time.RFC3339Nano, s); err == nil {
-		return t.UnixMilli()
-	}
-	return time.Now().UnixMilli()
 }

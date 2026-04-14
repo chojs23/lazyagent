@@ -3,9 +3,10 @@ package opencode
 import (
 	"regexp"
 	"strings"
-	"time"
 
+	"github.com/chojs23/lazyagent/internal/jsonutil"
 	"github.com/chojs23/lazyagent/internal/model"
+	"github.com/chojs23/lazyagent/internal/textutil"
 )
 
 var subagentRe = regexp.MustCompile(`\(@([\w-]+)(?:\s+subagent)?\)`)
@@ -27,22 +28,18 @@ var subagentRe = regexp.MustCompile(`\(@([\w-]+)(?:\s+subagent)?\)`)
 //	}
 func ParseRawEvent(raw map[string]any) model.ParsedEvent {
 	p := model.ParsedEvent{
-		SessionID:      firstNonEmpty(str(raw["session_id"]), "unknown"),
-		TranscriptPath: str(raw["project_dir"]),
-		ToolName:       normalizeToolName(str(raw["tool"])),
-		ToolUseID:      str(raw["call_id"]),
-		OwnerAgentID:   firstNonEmpty(str(raw["agent_id"]), str(raw["session_id"])),
+		SessionID:      textutil.FirstNonEmpty(jsonutil.String(raw["session_id"]), "unknown"),
+		TranscriptPath: jsonutil.String(raw["project_dir"]),
+		ToolName:       normalizeToolName(jsonutil.String(raw["tool"])),
+		ToolUseID:      jsonutil.String(raw["call_id"]),
+		OwnerAgentID:   textutil.FirstNonEmpty(jsonutil.String(raw["agent_id"]), jsonutil.String(raw["session_id"])),
 		Metadata:       map[string]any{},
 		Raw:            raw,
 	}
 
-	if ts := raw["timestamp"]; ts != nil {
-		p.Timestamp = parseTimestamp(ts)
-	} else {
-		p.Timestamp = time.Now().UnixMilli()
-	}
+	p.Timestamp = jsonutil.TimestampMillis(raw["timestamp"])
 
-	event := str(raw["event"])
+	event := jsonutil.String(raw["event"])
 	switch event {
 	case "tool.execute.before":
 		p.Type = "tool"
@@ -107,15 +104,15 @@ func ParseRawEvent(raw map[string]any) model.ParsedEvent {
 	}
 
 	// extract project slug from project_dir
-	if dir := str(raw["project_dir"]); dir != "" {
+	if dir := jsonutil.String(raw["project_dir"]); dir != "" {
 		p.ProjectName = dir
 	}
 
 	// child session: extract subagent info from title
-	if parent := str(raw["parent_session_id"]); parent != "" {
+	if parent := jsonutil.String(raw["parent_session_id"]); parent != "" {
 		p.Metadata["parent_session_id"] = parent
 		p.SubAgentID = p.SessionID
-		if title := str(raw["title"]); title != "" {
+		if title := jsonutil.String(raw["title"]); title != "" {
 			if m := subagentRe.FindStringSubmatch(title); m != nil {
 				p.SubAgentName = m[1]
 				p.SubAgentDescription = strings.TrimSpace(title[:strings.Index(title, m[0])])
@@ -235,34 +232,4 @@ func normalizeToolName(name string) string {
 	default:
 		return name
 	}
-}
-
-func str(v any) string {
-	if s, ok := v.(string); ok {
-		return s
-	}
-	return ""
-}
-
-func firstNonEmpty(vals ...string) string {
-	for _, v := range vals {
-		if v != "" {
-			return v
-		}
-	}
-	return ""
-}
-
-func parseTimestamp(v any) int64 {
-	switch t := v.(type) {
-	case float64:
-		return int64(t)
-	case int64:
-		return t
-	case string:
-		if parsed, err := time.Parse(time.RFC3339Nano, t); err == nil {
-			return parsed.UnixMilli()
-		}
-	}
-	return time.Now().UnixMilli()
 }

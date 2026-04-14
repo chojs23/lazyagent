@@ -7,6 +7,7 @@ import (
 	"charm.land/lipgloss/v2"
 
 	"github.com/chojs23/lazyagent/internal/model"
+	"github.com/chojs23/lazyagent/internal/textutil"
 )
 
 type projectsModel struct {
@@ -89,7 +90,7 @@ func buildProjectSessionLabel(indent, tree string, sess model.Session) string {
 		rt = "X"
 	}
 	name := shortID(sess.ID)
-	if slug := strings.TrimSpace(firstLine(sess.Slug)); slug != "" {
+	if slug := strings.TrimSpace(textutil.FirstLine(sess.Slug)); slug != "" {
 		name = slug
 	}
 	return fmt.Sprintf("%s%s[%s] %s - %s", indent, tree, rt, formatTime(sess.StartedAt), name)

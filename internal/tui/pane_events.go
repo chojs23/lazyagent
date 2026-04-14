@@ -7,7 +7,9 @@ import (
 
 	"charm.land/lipgloss/v2"
 
+	"github.com/chojs23/lazyagent/internal/jsonutil"
 	"github.com/chojs23/lazyagent/internal/model"
+	"github.com/chojs23/lazyagent/internal/textutil"
 )
 
 const eventsPageSize = 3000
@@ -217,7 +219,7 @@ func isBriefHighlighted(ev model.Event) bool {
 		if err := json.Unmarshal([]byte(ev.Payload), &p); err != nil {
 			return false
 		}
-		pt := getStr(p, "part_type")
+		pt := jsonutil.GetString(p, "part_type")
 		return pt == "text" || pt == "reasoning"
 	default:
 		return false
@@ -232,90 +234,90 @@ func eventBrief(ev model.Event) string {
 
 	// Claude stores tool parameters in "tool_input", OpenCode in "args".
 	// Merge both so the same extraction logic works for either runtime.
-	input := asMapSafe(p["tool_input"])
+	input := jsonutil.MapOrEmpty(p["tool_input"])
 	if len(input) == 0 {
-		input = asMapSafe(p["args"])
+		input = jsonutil.MapOrEmpty(p["args"])
 	}
 
 	switch ev.Subtype {
 	case "UserPromptSubmit":
-		return truncate(firstLine(getStr(p, "prompt")), 80)
+		return truncate(textutil.FirstLine(jsonutil.GetString(p, "prompt")), 80)
 
 	case "PreToolUse":
 		switch ev.ToolName {
 		case "Bash":
-			return truncate(firstLine(getStr(input, "command")), 80)
+			return truncate(textutil.FirstLine(jsonutil.GetString(input, "command")), 80)
 		case "Read":
-			return pick(getStr(input, "file_path"), getStr(input, "filePath"))
+			return textutil.FirstNonEmpty(jsonutil.GetString(input, "file_path"), jsonutil.GetString(input, "filePath"))
 		case "Edit":
-			filePath := pick(getStr(input, "file_path"), getStr(input, "filePath"))
-			oldStr := pick(getStr(input, "old_string"), getStr(input, "oldString"))
-			newStr := pick(getStr(input, "new_string"), getStr(input, "newString"))
+			filePath := textutil.FirstNonEmpty(jsonutil.GetString(input, "file_path"), jsonutil.GetString(input, "filePath"))
+			oldStr := textutil.FirstNonEmpty(jsonutil.GetString(input, "old_string"), jsonutil.GetString(input, "oldString"))
+			newStr := textutil.FirstNonEmpty(jsonutil.GetString(input, "new_string"), jsonutil.GetString(input, "newString"))
 			stats := editDiffStats(oldStr, newStr)
 			if stats != "" {
 				return truncate(filePath+" "+stats, 80)
 			}
 			return filePath
 		case "Write":
-			filePath := pick(getStr(input, "file_path"), getStr(input, "filePath"))
-			if content := getStr(input, "content"); content != "" {
+			filePath := textutil.FirstNonEmpty(jsonutil.GetString(input, "file_path"), jsonutil.GetString(input, "filePath"))
+			if content := jsonutil.GetString(input, "content"); content != "" {
 				n := strings.Count(content, "\n") + 1
 				return truncate(fmt.Sprintf("%s (+%d)", filePath, n), 80)
 			}
 			return filePath
 		case "apply_patch":
-			patch := pick(getStr(input, "input"), getStr(input, "patch"), getStr(input, "patchText"))
+			patch := textutil.FirstNonEmpty(jsonutil.GetString(input, "input"), jsonutil.GetString(input, "patch"), jsonutil.GetString(input, "patchText"))
 			if patch == "" {
-				if meta := asMapSafe(p["metadata"]); len(meta) > 0 {
-					patch = getStr(meta, "diff")
+				if meta := jsonutil.MapOrEmpty(p["metadata"]); len(meta) > 0 {
+					patch = jsonutil.GetString(meta, "diff")
 				}
 			}
 			stats := patchDiffStats(patch)
 			return truncate(stats, 80)
 		case "Grep":
-			s := getStr(input, "pattern")
-			if path := getStr(input, "path"); path != "" {
+			s := jsonutil.GetString(input, "pattern")
+			if path := jsonutil.GetString(input, "path"); path != "" {
 				s += " in " + path
 			}
 			return truncate(s, 80)
 		case "Glob":
-			return getStr(input, "pattern")
+			return jsonutil.GetString(input, "pattern")
 		case "Agent":
-			desc := getStr(input, "description")
-			if t := getStr(input, "subagent_type"); t != "" {
+			desc := jsonutil.GetString(input, "description")
+			if t := jsonutil.GetString(input, "subagent_type"); t != "" {
 				desc = "[" + t + "] " + desc
 			}
 			return truncate(desc, 80)
 		default:
-			return truncate(firstLine(getStr(input, "description")), 80)
+			return truncate(textutil.FirstLine(jsonutil.GetString(input, "description")), 80)
 		}
 
 	case "PostToolUse", "PostToolUseFailure":
 		// OpenCode puts tool output in top-level "output" or "title" fields.
-		ocOutput := pick(getStr(p, "title"), getStr(p, "output"))
+		ocOutput := textutil.FirstNonEmpty(jsonutil.GetString(p, "title"), jsonutil.GetString(p, "output"))
 
 		switch ev.ToolName {
 		case "Bash":
-			resp := asMapSafe(p["tool_response"])
-			out := getStr(resp, "stdout")
+			resp := jsonutil.MapOrEmpty(p["tool_response"])
+			out := jsonutil.GetString(resp, "stdout")
 			if out == "" {
-				out = getStr(resp, "stderr")
+				out = jsonutil.GetString(resp, "stderr")
 			}
 			if out == "" {
 				out = ocOutput
 			}
-			return truncate(firstLine(out), 80)
+			return truncate(textutil.FirstLine(out), 80)
 		case "Read":
-			return truncate(pick(getStr(input, "file_path"), getStr(input, "filePath"), ocOutput), 80)
+			return truncate(textutil.FirstNonEmpty(jsonutil.GetString(input, "file_path"), jsonutil.GetString(input, "filePath"), ocOutput), 80)
 		case "Edit":
-			filePath := pick(getStr(input, "file_path"), getStr(input, "filePath"), ocOutput)
-			oldStr := pick(getStr(input, "old_string"), getStr(input, "oldString"))
-			newStr := pick(getStr(input, "new_string"), getStr(input, "newString"))
+			filePath := textutil.FirstNonEmpty(jsonutil.GetString(input, "file_path"), jsonutil.GetString(input, "filePath"), ocOutput)
+			oldStr := textutil.FirstNonEmpty(jsonutil.GetString(input, "old_string"), jsonutil.GetString(input, "oldString"))
+			newStr := textutil.FirstNonEmpty(jsonutil.GetString(input, "new_string"), jsonutil.GetString(input, "newString"))
 			stats := editDiffStats(oldStr, newStr)
 			// fallback: try metadata.diff from OpenCode PostToolUse
 			if stats == "" {
-				if meta := asMapSafe(p["metadata"]); len(meta) > 0 {
-					stats = patchDiffStats(getStr(meta, "diff"))
+				if meta := jsonutil.MapOrEmpty(p["metadata"]); len(meta) > 0 {
+					stats = patchDiffStats(jsonutil.GetString(meta, "diff"))
 				}
 			}
 			if stats != "" {
@@ -323,49 +325,49 @@ func eventBrief(ev model.Event) string {
 			}
 			return truncate(filePath, 80)
 		case "Write":
-			filePath := pick(getStr(input, "file_path"), getStr(input, "filePath"), ocOutput)
-			if content := getStr(input, "content"); content != "" {
+			filePath := textutil.FirstNonEmpty(jsonutil.GetString(input, "file_path"), jsonutil.GetString(input, "filePath"), ocOutput)
+			if content := jsonutil.GetString(input, "content"); content != "" {
 				n := strings.Count(content, "\n") + 1
 				return truncate(fmt.Sprintf("%s (+%d)", filePath, n), 80)
 			}
 			return truncate(filePath, 80)
 		case "apply_patch":
-			patch := pick(getStr(input, "input"), getStr(input, "patch"), getStr(input, "patchText"))
+			patch := textutil.FirstNonEmpty(jsonutil.GetString(input, "input"), jsonutil.GetString(input, "patch"), jsonutil.GetString(input, "patchText"))
 			if patch == "" {
-				if meta := asMapSafe(p["metadata"]); len(meta) > 0 {
-					patch = getStr(meta, "diff")
+				if meta := jsonutil.MapOrEmpty(p["metadata"]); len(meta) > 0 {
+					patch = jsonutil.GetString(meta, "diff")
 				}
 			}
 			stats := patchDiffStats(patch)
 			return truncate(stats, 80)
 		default:
-			resp := getStr(p, "tool_response")
+			resp := jsonutil.GetString(p, "tool_response")
 			if resp == "" {
-				respMap := asMapSafe(p["tool_response"])
-				resp = getStr(respMap, "stdout")
+				respMap := jsonutil.MapOrEmpty(p["tool_response"])
+				resp = jsonutil.GetString(respMap, "stdout")
 			}
 			if resp == "" {
 				resp = ocOutput
 			}
-			return truncate(firstLine(resp), 80)
+			return truncate(textutil.FirstLine(resp), 80)
 		}
 
 	case "SessionStart":
-		return getStr(p, "model")
+		return jsonutil.GetString(p, "model")
 	case "SessionEnd":
-		return getStr(p, "reason")
+		return jsonutil.GetString(p, "reason")
 	case "Stop":
-		return truncate(firstLine(getStr(p, "last_assistant_message")), 80)
+		return truncate(textutil.FirstLine(jsonutil.GetString(p, "last_assistant_message")), 80)
 	case "SubagentStop":
-		return truncate(firstLine(getStr(p, "last_assistant_message")), 80)
+		return truncate(textutil.FirstLine(jsonutil.GetString(p, "last_assistant_message")), 80)
 	case "Notification":
-		return truncate(pick(getStr(p, "message"), getStr(p, "permission")), 80)
+		return truncate(textutil.FirstNonEmpty(jsonutil.GetString(p, "message"), jsonutil.GetString(p, "permission")), 80)
 
 	case "SessionStatus":
-		st := getStr(p, "status_type")
+		st := jsonutil.GetString(p, "status_type")
 		if st == "retry" {
-			attempt := getStr(p, "retry_attempt")
-			msg := getStr(p, "retry_message")
+			attempt := jsonutil.GetString(p, "retry_attempt")
+			msg := jsonutil.GetString(p, "retry_message")
 			if attempt != "" {
 				return truncate(fmt.Sprintf("retry #%s: %s", attempt, msg), 80)
 			}
@@ -373,33 +375,33 @@ func eventBrief(ev model.Event) string {
 		}
 		return st
 	case "SessionDiff":
-		fc := getStr(p, "diff_file_count")
-		add := getStr(p, "diff_additions")
-		del := getStr(p, "diff_deletions")
+		fc := jsonutil.GetString(p, "diff_file_count")
+		add := jsonutil.GetString(p, "diff_additions")
+		del := jsonutil.GetString(p, "diff_deletions")
 		if fc != "" {
 			return fmt.Sprintf("%s files (+%s -%s)", fc, add, del)
 		}
 		return ""
 	case "PermissionReply":
-		return getStr(p, "reply")
+		return jsonutil.GetString(p, "reply")
 	case "TodoUpdate":
-		return getStr(p, "todo_count") + " todos"
+		return jsonutil.GetString(p, "todo_count") + " todos"
 	case "CommandExecuted":
-		name := getStr(p, "command_name")
-		args := getStr(p, "command_args")
+		name := jsonutil.GetString(p, "command_name")
+		args := jsonutil.GetString(p, "command_args")
 		if args != "" {
 			return truncate(name+" "+args, 80)
 		}
 		return name
 	case "FileEdited":
-		return getStr(p, "file")
+		return jsonutil.GetString(p, "file")
 
 	case "MessageUpdated":
-		role := getStr(p, "message_role")
+		role := jsonutil.GetString(p, "message_role")
 		if role == "assistant" {
-			cost := getStr(p, "cost")
-			in := getStr(p, "tokens_input")
-			out := getStr(p, "tokens_output")
+			cost := jsonutil.GetString(p, "cost")
+			in := jsonutil.GetString(p, "tokens_input")
+			out := jsonutil.GetString(p, "tokens_output")
 			if in != "" || out != "" {
 				s := fmt.Sprintf("token in:%s token out:%s", in, out)
 				if cost != "" && cost != "0" {
@@ -412,24 +414,24 @@ func eventBrief(ev model.Event) string {
 		return role
 
 	case "PartUpdated":
-		partType := getStr(p, "part_type")
+		partType := jsonutil.GetString(p, "part_type")
 		switch partType {
 		case "text":
-			return truncate(firstLine(getStr(p, "text")), 80)
+			return truncate(textutil.FirstLine(jsonutil.GetString(p, "text")), 80)
 		case "reasoning":
-			return truncate("reasoning: "+firstLine(getStr(p, "text")), 80)
+			return truncate("reasoning: "+textutil.FirstLine(jsonutil.GetString(p, "text")), 80)
 		case "tool":
-			name := getStr(p, "tool_name")
-			status := getStr(p, "tool_status")
-			title := getStr(p, "tool_title")
+			name := jsonutil.GetString(p, "tool_name")
+			status := jsonutil.GetString(p, "tool_status")
+			title := jsonutil.GetString(p, "tool_title")
 			s := name + " [" + status + "]"
 			if title != "" {
 				s += " " + title
 			}
 			return truncate(s, 80)
 		case "step-finish":
-			in := getStr(p, "tokens_input")
-			out := getStr(p, "tokens_output")
+			in := jsonutil.GetString(p, "tokens_input")
+			out := jsonutil.GetString(p, "tokens_output")
 			return fmt.Sprintf("step done (in:%s out:%s)", in, out)
 		case "step-start":
 			return "step start"
@@ -449,16 +451,6 @@ func splitLines(s string) []string {
 		return nil
 	}
 	return strings.Split(s, "\n")
-}
-
-// pick returns the first non-empty string.
-func pick(vals ...string) string {
-	for _, v := range vals {
-		if v != "" {
-			return v
-		}
-	}
-	return ""
 }
 
 // editDiffStats computes diff stats from old_string/new_string using Myers diff.

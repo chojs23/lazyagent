@@ -1,9 +1,9 @@
 package codex
 
 import (
-	"time"
-
+	"github.com/chojs23/lazyagent/internal/jsonutil"
 	"github.com/chojs23/lazyagent/internal/model"
+	"github.com/chojs23/lazyagent/internal/textutil"
 )
 
 // ParseRawEvent converts a Codex hook stdin payload into a normalized ParsedEvent.
@@ -21,21 +21,17 @@ import (
 //	Stop:              turn_id, last_assistant_message
 func ParseRawEvent(raw map[string]any) model.ParsedEvent {
 	p := model.ParsedEvent{
-		SessionID:      firstNonEmpty(str(raw["session_id"]), "unknown"),
-		TranscriptPath: str(raw["transcript_path"]),
-		ToolName:       str(raw["tool_name"]),
-		ToolUseID:      str(raw["tool_use_id"]),
+		SessionID:      textutil.FirstNonEmpty(jsonutil.String(raw["session_id"]), "unknown"),
+		TranscriptPath: jsonutil.String(raw["transcript_path"]),
+		ToolName:       jsonutil.String(raw["tool_name"]),
+		ToolUseID:      jsonutil.String(raw["tool_use_id"]),
 		Metadata:       map[string]any{},
 		Raw:            raw,
 	}
 
-	if ts := raw["timestamp"]; ts != nil {
-		p.Timestamp = parseTimestamp(ts)
-	} else {
-		p.Timestamp = time.Now().UnixMilli()
-	}
+	p.Timestamp = jsonutil.TimestampMillis(raw["timestamp"])
 
-	hookName := str(raw["hook_event_name"])
+	hookName := jsonutil.String(raw["hook_event_name"])
 	switch hookName {
 	case "SessionStart":
 		p.Type, p.Subtype = "session", "SessionStart"
@@ -63,65 +59,26 @@ func ParseRawEvent(raw map[string]any) model.ParsedEvent {
 
 	// Store prompt text for UserPromptSubmit events.
 	if hookName == "UserPromptSubmit" {
-		if prompt := str(raw["prompt"]); prompt != "" {
+		if prompt := jsonutil.String(raw["prompt"]); prompt != "" {
 			p.Metadata["prompt"] = prompt
 		}
 	}
 
 	// Store last assistant message for Stop events.
 	if hookName == "Stop" {
-		if msg := str(raw["last_assistant_message"]); msg != "" {
+		if msg := jsonutil.String(raw["last_assistant_message"]); msg != "" {
 			p.Metadata["last_assistant_message"] = msg
 		}
 	}
 
 	// Store tool_input command for Bash tool events.
 	if hookName == "PreToolUse" || hookName == "PostToolUse" {
-		if input := asMap(raw["tool_input"]); input != nil {
-			if cmd := str(input["command"]); cmd != "" {
+		if input := jsonutil.Map(raw["tool_input"]); input != nil {
+			if cmd := jsonutil.String(input["command"]); cmd != "" {
 				p.Metadata["command"] = cmd
 			}
 		}
 	}
 
 	return p
-}
-
-func asMap(v any) map[string]any {
-	if m, ok := v.(map[string]any); ok {
-		return m
-	}
-	return nil
-}
-
-func str(v any) string {
-	if s, ok := v.(string); ok {
-		return s
-	}
-	return ""
-}
-
-func firstNonEmpty(vals ...string) string {
-	for _, v := range vals {
-		if v != "" {
-			return v
-		}
-	}
-	return ""
-}
-
-func parseTimestamp(v any) int64 {
-	switch t := v.(type) {
-	case float64:
-		return int64(t)
-	case int64:
-		return t
-	case int:
-		return int64(t)
-	case string:
-		if parsed, err := time.Parse(time.RFC3339Nano, t); err == nil {
-			return parsed.UnixMilli()
-		}
-	}
-	return time.Now().UnixMilli()
 }
