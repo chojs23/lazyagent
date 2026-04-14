@@ -141,7 +141,7 @@ func runIngest(st *store.Store, args []string) error {
 		return fmt.Errorf("unsupported runtime %q", *runtime)
 	}
 	if err != nil {
-		return err
+		return fmt.Errorf("ingest %s: %w", *runtime, err)
 	}
 
 	if *quiet {

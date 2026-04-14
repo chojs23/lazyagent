@@ -66,6 +66,7 @@ type Model struct {
 	lastKey   string
 
 	errorOverlay errorOverlay
+	debug        debugOverlay
 
 	allProjects []model.Project
 	allSessions []model.Session
@@ -78,7 +79,7 @@ func Run(st *store.Store, refreshInterval time.Duration) error {
 }
 
 func newModel(st *store.Store, refreshInterval time.Duration) Model {
-	return Model{
+	m := Model{
 		store:           st,
 		refreshInterval: refreshInterval,
 		keys:            defaultKeyMap(),
@@ -92,6 +93,8 @@ func newModel(st *store.Store, refreshInterval time.Duration) Model {
 		focus:           focusProjects,
 		status:          "Loading...",
 	}
+	setGlobalDebug(&m.debug)
+	return m
 }
 
 func (m Model) Init() tea.Cmd {
@@ -113,10 +116,8 @@ func (m *Model) syncLayout() {
 }
 
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
-	if m.filter.searchMode {
-		return m.updateSearch(msg)
-	}
-
+	// Handle non-key messages first so they are processed regardless of
+	// whether the search input is active.
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
@@ -152,7 +153,48 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.agents.tick()
 		m.projects.tick()
 		return m, spinnerTickCmd()
+	}
 
+	// While the search input is focused, route remaining messages
+	// (primarily key events) to the search handler.
+	if m.filter.searchMode {
+		return m.updateSearch(msg)
+	}
+
+	// When the debug overlay is open, capture keys for its navigation
+	// but allow the toggle key to pass through to handleKey.
+	if m.debug.visible {
+		if msg, ok := msg.(tea.KeyMsg); ok {
+			switch msg.String() {
+			case "j", "down":
+				m.debug.scrollDown(1)
+				return m, nil
+			case "k", "up":
+				m.debug.scrollUp(1)
+				return m, nil
+			case "G":
+				m.debug.scroll = 0
+				return m, nil
+			case "g":
+				if m.lastKey == "g" {
+					m.debug.scroll = max(len(m.debug.entries)-1, 0)
+					m.lastKey = ""
+					return m, nil
+				}
+				m.lastKey = "g"
+				return m, nil
+			case "c":
+				m.debug.clear()
+				return m, nil
+			case "`", "esc":
+				m.debug.toggle()
+				return m, nil
+			}
+			return m, nil
+		}
+	}
+
+	switch msg := msg.(type) {
 	case tea.KeyMsg:
 		return m.handleKey(msg)
 	}
@@ -199,6 +241,10 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.focus = focusDetail
 		m.syncLayout()
 		return m, nil
+	case msg.Key().Code == tea.KeyEscape && m.filter.searchQuery != "":
+		m.filter.clearSearch()
+		m.status = "Search: off"
+		return m, m.loadDataCmd()
 	case key.Matches(msg, m.keys.Search):
 		m.filter.enterSearch()
 		m.status = "Type search query, enter to apply, esc to cancel"
@@ -230,6 +276,9 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.status = "Agent filter: all"
 			return m, m.loadDataCmd()
 		}
+	case key.Matches(msg, m.keys.DebugLog):
+		m.debug.toggle()
+		return m, nil
 	case key.Matches(msg, m.keys.Delete):
 		return m.handleDelete()
 	case key.Matches(msg, m.keys.ClearEvt):
@@ -441,13 +490,13 @@ func (m Model) updateEvents(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 func (m Model) updateSearch(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
-		switch msg.String() {
-		case "enter":
+		switch msg.Key().Code {
+		case tea.KeyEnter:
 			m.filter.commitSearch()
 			m.status = "Search: " + orDefault(m.filter.searchQuery, "off")
 			m.syncLayout()
 			return m, m.loadDataCmd()
-		case "esc":
+		case tea.KeyEscape:
 			m.filter.cancelSearch()
 			m.status = "Search cancelled"
 			m.syncLayout()
@@ -496,6 +545,7 @@ func (m *Model) reportError(context string, err error) {
 		return
 	}
 	applog.Error(context, err)
+	m.debug.add("%s: %s", context, err.Error())
 	m.lastError = err
 	m.status = context + ": " + err.Error()
 	m.errorOverlay.show(context, err.Error())
@@ -688,6 +738,9 @@ func (m Model) View() tea.View {
 	filterBar, statusLine := m.footerViews()
 
 	full := lipgloss.JoinVertical(lipgloss.Left, main, filterBar, statusLine)
+	if m.debug.visible {
+		full = renderOverlay(full, m.width, m.height, m.debug.view(m.width, m.height))
+	}
 	if m.errorOverlay.visible {
 		full = renderOverlay(full, m.width, m.height, m.errorOverlay.view(m.width, m.height))
 	}
