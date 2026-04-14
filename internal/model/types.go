@@ -133,4 +133,3 @@ func (e Event) PayloadPretty() string {
 	}
 	return strings.TrimSpace(buf.String())
 }
-
