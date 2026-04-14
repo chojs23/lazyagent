@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"path/filepath"
 	"testing"
 
@@ -1345,6 +1346,28 @@ func TestExtractProjectDir(t *testing.T) {
 	want := "/home/user/.claude/projects/-home-user-app"
 	if got != want {
 		t.Fatalf("got %q, want %q", got, want)
+	}
+}
+
+func TestCreateProjectWithUniqueSlugFailsWhenSuffixesAreExhausted(t *testing.T) {
+	st := testStore(t)
+	ctx := context.Background()
+
+	err := st.WithTx(ctx, func(q *store.Queries) error {
+		for suffix := 2; suffix <= maxProjectSlugSuffix; suffix++ {
+			slug := fmt.Sprintf("my-app-%d", suffix)
+			if _, err := q.CreateProject(ctx, slug, slug, fmt.Sprintf("/taken/%d", suffix), ""); err != nil {
+				return err
+			}
+		}
+		_, err := createProjectWithUniqueSlug(ctx, q, "my-app", "/home/user/my-app", "")
+		return err
+	})
+	if err == nil {
+		t.Fatal("expected createProjectWithUniqueSlug to fail after slug suffix exhaustion")
+	}
+	if want := fmt.Sprintf("resolve project slug: exhausted suffixes for %q up to %d", "my-app", maxProjectSlugSuffix); err.Error() != want {
+		t.Fatalf("error = %q, want %q", err.Error(), want)
 	}
 }
 

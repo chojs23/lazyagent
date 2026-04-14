@@ -20,6 +20,8 @@ type IngestResult struct {
 	ProjectID int64  `json:"project_id"`
 }
 
+const maxProjectSlugSuffix = 1000
+
 func IngestClaudeEvent(ctx context.Context, st *store.Store, payload map[string]any) (IngestResult, error) {
 	parsed := claude.ParseRawEvent(payload)
 	result := IngestResult{SessionID: parsed.SessionID}
@@ -651,16 +653,7 @@ func resolveProject(ctx context.Context, q *store.Queries, transcriptPath, cwd s
 		}
 
 		base := candidates[0]
-		for suffix := 2; ; suffix++ {
-			c := fmt.Sprintf("%s-%d", base, suffix)
-			avail, err := q.IsSlugAvailable(ctx, c)
-			if err != nil {
-				return 0, err
-			}
-			if avail {
-				return q.CreateProject(ctx, c, c, cwd, "")
-			}
-		}
+		return createProjectWithUniqueSlug(ctx, q, base, cwd, "")
 	}
 
 	if transcriptPath != "" {
@@ -688,16 +681,7 @@ func resolveProject(ctx context.Context, q *store.Queries, transcriptPath, cwd s
 		}
 
 		base := candidates[0]
-		for suffix := 2; ; suffix++ {
-			c := fmt.Sprintf("%s-%d", base, suffix)
-			avail, err := q.IsSlugAvailable(ctx, c)
-			if err != nil {
-				return 0, err
-			}
-			if avail {
-				return q.CreateProject(ctx, c, c, cwd, transcriptDir)
-			}
-		}
+		return createProjectWithUniqueSlug(ctx, q, base, cwd, transcriptDir)
 	}
 
 	proj, err := q.GetProjectBySlug(ctx, "unknown")
@@ -708,6 +692,21 @@ func resolveProject(ctx context.Context, q *store.Queries, transcriptPath, cwd s
 		return proj.ID, nil
 	}
 	return q.CreateProject(ctx, "unknown", "unknown", "", "")
+}
+
+func createProjectWithUniqueSlug(ctx context.Context, q *store.Queries, base, directory, transcriptPath string) (int64, error) {
+	for suffix := 2; suffix <= maxProjectSlugSuffix; suffix++ {
+		slug := fmt.Sprintf("%s-%d", base, suffix)
+		avail, err := q.IsSlugAvailable(ctx, slug)
+		if err != nil {
+			return 0, err
+		}
+		if avail {
+			return q.CreateProject(ctx, slug, slug, directory, transcriptPath)
+		}
+	}
+
+	return 0, fmt.Errorf("resolve project slug: exhausted suffixes for %q up to %d", base, maxProjectSlugSuffix)
 }
 
 func extractProjectDir(transcriptPath string) string {
