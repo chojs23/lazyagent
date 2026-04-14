@@ -14,6 +14,7 @@ type keyMap struct {
 	Refresh      key.Binding
 	ToggleAuto   key.Binding
 	CycleType    key.Binding
+	CycleTypeRev key.Binding
 	AgentAll     key.Binding
 	Delete       key.Binding
 	ClearEvt     key.Binding
@@ -34,6 +35,7 @@ func defaultKeyMap() keyMap {
 		Refresh:      key.NewBinding(key.WithKeys("r"), key.WithHelp("r", "refresh")),
 		ToggleAuto:   key.NewBinding(key.WithKeys("F"), key.WithHelp("F", "auto-follow")),
 		CycleType:    key.NewBinding(key.WithKeys("t"), key.WithHelp("t", "type filter")),
+		CycleTypeRev: key.NewBinding(key.WithKeys("T"), key.WithHelp("T", "type filter rev")),
 		AgentAll:     key.NewBinding(key.WithKeys("a"), key.WithHelp("a", "all agents")),
 		Delete:       key.NewBinding(key.WithKeys("d"), key.WithHelp("d", "delete")),
 		ClearEvt:     key.NewBinding(key.WithKeys("D"), key.WithHelp("D", "clear events")),

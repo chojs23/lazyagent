@@ -13,11 +13,11 @@ var typeFilters = []struct {
 	label string
 }{
 	{"", "All"},
-	{"tool", "Tool"},
 	{"user", "User"},
-	{"system", "System"},
-	{"session", "Session"},
 	{"codechange", "Code"},
+	{"system", "System"},
+	{"tool", "Tool"},
+	{"session", "Session"},
 }
 
 type filterModel struct {
@@ -37,6 +37,10 @@ func newFilter() filterModel {
 
 func (f *filterModel) cycleType() {
 	f.typeIndex = (f.typeIndex + 1) % len(typeFilters)
+}
+
+func (f *filterModel) cycleTypeReverse() {
+	f.typeIndex = (f.typeIndex - 1 + len(typeFilters)) % len(typeFilters)
 }
 
 func (f *filterModel) typeValue() string {
