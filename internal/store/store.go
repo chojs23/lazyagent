@@ -663,7 +663,7 @@ func appendEventFilterConditions(parts []string, args []any, f model.EventFilter
 		parts = append(parts, fmt.Sprintf("AND agent_id IN (%s)", strings.Join(placeholders, ",")))
 	}
 	if f.Type == "codechange" {
-		parts = append(parts, "AND (tool_name IN ('Edit','Write','apply_patch','NotebookEdit') OR subtype IN ('FileEdited','SessionDiff'))")
+		parts = append(parts, "AND (tool_name IN ('Edit','Write','apply_patch','NotebookEdit') OR subtype = 'FileEdited')")
 	} else if f.Type != "" {
 		parts = append(parts, "AND type = ?")
 		args = append(args, f.Type)
