@@ -362,7 +362,6 @@ func (d *detailModel) renderToolDetail(ev *model.Event) string {
 		return joinNonEmpty("\n",
 			field("File", filePath),
 			diffBlock,
-			block("Result", response),
 		)
 
 	case "Write":
@@ -370,7 +369,6 @@ func (d *detailModel) renderToolDetail(ev *model.Event) string {
 		return joinNonEmpty("\n",
 			field("File", filePath),
 			d.renderAdditionsBlock("Content", filePath, get("content"), expand),
-			block("Result", response),
 		)
 
 	case "apply_patch":
@@ -383,7 +381,6 @@ func (d *detailModel) renderToolDetail(ev *model.Event) string {
 		}
 		return joinNonEmpty("\n",
 			d.renderPatchBlock("Patch", patch, expand),
-			block("Result", response),
 		)
 
 	case "Grep":

@@ -14,7 +14,7 @@ var (
 	hlStringFg  = lipgloss.Color("179") // amber
 	hlCommentFg = lipgloss.Color("242") // gray
 	hlNumberFg  = lipgloss.Color("176") // magenta
-	hlDefaultFg = colorDimWhite
+	hlDefaultFg = colorWhite
 
 	// Diff background tints
 	hlBgAdd = lipgloss.Color("22") // dark green
