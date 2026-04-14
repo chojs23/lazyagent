@@ -2,8 +2,10 @@ package main
 
 import (
 	"bytes"
+	"encoding/json"
 	"io"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -40,6 +42,55 @@ func TestPrintUsageIncludesVersionCommand(t *testing.T) {
 	output := captureStdout(t, printUsage)
 	if !strings.Contains(output, "version [--json]") {
 		t.Fatalf("expected version command in usage, got %q", output)
+	}
+}
+
+func TestInitClaudeRegistersPostToolUseFailureHook(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+
+	if err := initClaude(); err != nil {
+		t.Fatalf("initClaude: %v", err)
+	}
+
+	settingsPath := filepath.Join(home, ".claude", "settings.json")
+	data, err := os.ReadFile(settingsPath)
+	if err != nil {
+		t.Fatalf("read settings: %v", err)
+	}
+
+	var settings map[string]any
+	if err := json.Unmarshal(data, &settings); err != nil {
+		t.Fatalf("unmarshal settings: %v", err)
+	}
+
+	hooks, ok := settings["hooks"].(map[string]any)
+	if !ok {
+		t.Fatalf("hooks missing or wrong type: %#v", settings["hooks"])
+	}
+
+	entries, ok := hooks["PostToolUseFailure"].([]any)
+	if !ok || len(entries) == 0 {
+		t.Fatalf("PostToolUseFailure hook missing: %#v", hooks["PostToolUseFailure"])
+	}
+
+	entry, ok := entries[0].(map[string]any)
+	if !ok {
+		t.Fatalf("hook entry has wrong type: %#v", entries[0])
+	}
+
+	hookList, ok := entry["hooks"].([]any)
+	if !ok || len(hookList) == 0 {
+		t.Fatalf("nested hooks missing: %#v", entry["hooks"])
+	}
+
+	hook, ok := hookList[0].(map[string]any)
+	if !ok {
+		t.Fatalf("nested hook has wrong type: %#v", hookList[0])
+	}
+
+	if got := hook["command"]; got != "lazyagent ingest --runtime claude" {
+		t.Fatalf("command = %#v, want %q", got, "lazyagent ingest --runtime claude")
 	}
 }
 

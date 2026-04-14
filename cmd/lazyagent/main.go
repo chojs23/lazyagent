@@ -228,7 +228,7 @@ func initClaude() error {
 		hooks = map[string]any{}
 	}
 
-	events := []string{"PreToolUse", "PostToolUse", "SessionStart", "SessionEnd", "Stop", "SubagentStop", "Notification", "UserPromptSubmit"}
+	events := []string{"PreToolUse", "PostToolUse", "PostToolUseFailure", "SessionStart", "SessionEnd", "Stop", "SubagentStop", "Notification", "UserPromptSubmit"}
 
 	for _, event := range events {
 		// remove existing lazyagent hooks, keep others
