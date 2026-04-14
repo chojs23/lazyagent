@@ -319,17 +319,18 @@ func (d *detailModel) renderToolDetail(ev *model.Event) string {
 		)
 
 	case "Edit":
+		filePath := get("file_path")
 		return joinNonEmpty("\n",
-			field("File", get("file_path")),
-			d.renderDiffBlock("Diff", get("old_string"), get("new_string"), expand),
+			field("File", filePath),
+			d.renderDiffBlock("Diff", filePath, get("old_string"), get("new_string"), expand),
 			block("Result", response),
 		)
 
 	case "Write":
-		content := get("content")
+		filePath := get("file_path")
 		return joinNonEmpty("\n",
-			field("File", get("file_path")),
-			d.renderAdditionsBlock("Content", content, expand),
+			field("File", filePath),
+			d.renderAdditionsBlock("Content", filePath, get("content"), expand),
 			block("Result", response),
 		)
 
@@ -380,45 +381,62 @@ func (d *detailModel) renderToolDetail(ev *model.Event) string {
 	}
 }
 
-// renderDiffBlock renders old_string and new_string as a colored unified diff.
-func (d *detailModel) renderDiffBlock(label, oldStr, newStr string, expand bool) string {
+// renderDiffBlock renders old_string and new_string as a colored unified diff
+// using the Myers diff algorithm with 3 lines of context and syntax highlighting.
+func (d *detailModel) renderDiffBlock(label, filePath, oldStr, newStr string, expand bool) string {
 	if oldStr == "" && newStr == "" {
 		return ""
 	}
 	headerStyle := lipgloss.NewStyle().Foreground(colorCyan).Bold(true)
-	removeStyle := lipgloss.NewStyle().Foreground(colorRed)
-	addStyle := lipgloss.NewStyle().Foreground(colorGreen)
+	removePrefix := lipgloss.NewStyle().Foreground(colorRed).Render("- ")
+	addPrefix := lipgloss.NewStyle().Foreground(colorGreen).Render("+ ")
+	sepStyle := lipgloss.NewStyle().Foreground(colorMagenta)
+
+	lang := langFromPath(filePath)
+	oldLines := strings.Split(oldStr, "\n")
+	newLines := strings.Split(newStr, "\n")
+	script := ComputeDiff(oldLines, newLines)
+	stats := Stats(script)
+
+	contextScript := WithContext(script, 3)
 
 	var lines []string
-	if oldStr != "" {
-		for _, l := range strings.Split(oldStr, "\n") {
-			lines = append(lines, removeStyle.Render("- "+l))
-		}
-	}
-	if newStr != "" {
-		for _, l := range strings.Split(newStr, "\n") {
-			lines = append(lines, addStyle.Render("+ "+l))
+	for _, dl := range contextScript {
+		switch dl.Op {
+		case DiffDelete:
+			lines = append(lines, removePrefix+highlightLine(dl.Text, lang, hlBgDel))
+		case DiffInsert:
+			lines = append(lines, addPrefix+highlightLine(dl.Text, lang, hlBgAdd))
+		case DiffEqual:
+			if dl.Text == "~~~" {
+				lines = append(lines, sepStyle.Render("  ~~~"))
+			} else {
+				lines = append(lines, dimStyle.Render("  ")+highlightLine(dl.Text, lang))
+			}
 		}
 	}
 
+	statsStr := fmt.Sprintf(" (+%d -%d)", stats.Additions, stats.Deletions)
 	totalLines := len(lines)
-	if !expand && totalLines > 20 {
-		lines = lines[:20]
-		return headerStyle.Render(label+fmt.Sprintf(" (%d lines):", totalLines)) + "\n" +
+	if !expand && totalLines > 30 {
+		lines = lines[:30]
+		return headerStyle.Render(label+statsStr+fmt.Sprintf(" (%d lines):", totalLines)) + "\n" +
 			strings.Join(lines, "\n") + "\n" +
-			dimStyle.Render(fmt.Sprintf("  ... (%d more lines, e to expand)", totalLines-20))
+			dimStyle.Render(fmt.Sprintf("  ... (%d more lines, e to expand)", totalLines-30))
 	}
-	return headerStyle.Render(label+":") + "\n" + strings.Join(lines, "\n")
+	return headerStyle.Render(label+statsStr+":") + "\n" + strings.Join(lines, "\n")
 }
 
-// renderAdditionsBlock renders content as all-additions (green + prefix).
-func (d *detailModel) renderAdditionsBlock(label, content string, expand bool) string {
+// renderAdditionsBlock renders content as all-additions (green + prefix)
+// with syntax highlighting based on file extension.
+func (d *detailModel) renderAdditionsBlock(label, filePath, content string, expand bool) string {
 	if content == "" {
 		return ""
 	}
 	headerStyle := lipgloss.NewStyle().Foreground(colorCyan).Bold(true)
-	addStyle := lipgloss.NewStyle().Foreground(colorGreen)
+	addPrefix := lipgloss.NewStyle().Foreground(colorGreen).Render("+ ")
 
+	lang := langFromPath(filePath)
 	raw := strings.Split(content, "\n")
 	totalLines := len(raw)
 	if !expand && totalLines > 20 {
@@ -427,7 +445,7 @@ func (d *detailModel) renderAdditionsBlock(label, content string, expand bool) s
 
 	var lines []string
 	for _, l := range raw {
-		lines = append(lines, addStyle.Render("+ "+l))
+		lines = append(lines, addPrefix+highlightLine(l, lang, hlBgAdd))
 	}
 
 	if !expand && totalLines > 20 {
@@ -438,14 +456,16 @@ func (d *detailModel) renderAdditionsBlock(label, content string, expand bool) s
 	return headerStyle.Render(label+":") + "\n" + strings.Join(lines, "\n")
 }
 
-// renderPatchBlock renders a unified patch with diff coloring.
+// renderPatchBlock renders a unified patch with diff coloring and syntax highlighting.
+// It detects the file path from patch headers (*** Update File: path, --- a/path, etc.)
+// and applies language-appropriate highlighting to changed lines.
 func (d *detailModel) renderPatchBlock(label, patch string, expand bool) string {
 	if patch == "" {
 		return ""
 	}
 	headerStyle := lipgloss.NewStyle().Foreground(colorCyan).Bold(true)
-	removeStyle := lipgloss.NewStyle().Foreground(colorRed)
-	addStyle := lipgloss.NewStyle().Foreground(colorGreen)
+	removePrefix := lipgloss.NewStyle().Foreground(colorRed).Render("-")
+	addPrefix := lipgloss.NewStyle().Foreground(colorGreen).Render("+")
 	metaStyle := lipgloss.NewStyle().Foreground(colorMagenta)
 
 	raw := strings.Split(patch, "\n")
@@ -454,13 +474,28 @@ func (d *detailModel) renderPatchBlock(label, patch string, expand bool) string 
 		raw = raw[:40]
 	}
 
+	var lang string
 	var lines []string
 	for _, l := range raw {
 		switch {
+		case strings.HasPrefix(l, "*** ") && strings.Contains(l, "File:"):
+			// Codex format: *** Update File: path/to/file.go
+			if idx := strings.Index(l, "File:"); idx >= 0 {
+				filePath := strings.TrimSpace(l[idx+5:])
+				lang = langFromPath(filePath)
+			}
+			lines = append(lines, metaStyle.Render(l))
+		case strings.HasPrefix(l, "--- "):
+			// unified diff: --- a/path/to/file.go
+			filePath := strings.TrimPrefix(strings.TrimPrefix(l, "--- "), "a/")
+			lang = langFromPath(filePath)
+			lines = append(lines, metaStyle.Render(l))
+		case strings.HasPrefix(l, "+++ "):
+			lines = append(lines, metaStyle.Render(l))
 		case strings.HasPrefix(l, "-"):
-			lines = append(lines, removeStyle.Render(l))
+			lines = append(lines, removePrefix+highlightLine(l[1:], lang, hlBgDel))
 		case strings.HasPrefix(l, "+"):
-			lines = append(lines, addStyle.Render(l))
+			lines = append(lines, addPrefix+highlightLine(l[1:], lang, hlBgAdd))
 		case strings.HasPrefix(l, "***"):
 			lines = append(lines, metaStyle.Render(l))
 		case strings.HasPrefix(l, "@@"):
