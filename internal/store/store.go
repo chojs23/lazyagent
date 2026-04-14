@@ -247,11 +247,6 @@ func (q *Queries) IsSlugAvailable(ctx context.Context, slug string) (bool, error
 	return false, nil
 }
 
-func (q *Queries) UpdateProjectName(ctx context.Context, projectID int64, name string) error {
-	_, err := q.db.ExecContext(ctx, `UPDATE projects SET name=?, updated_at=? WHERE id=?`, name, nowMillis(), projectID)
-	return err
-}
-
 func (q *Queries) ListProjects(ctx context.Context) ([]model.Project, error) {
 	rows, err := q.db.QueryContext(ctx, `
 		SELECT p.id, p.slug, p.name, COALESCE(p.directory,''), COALESCE(p.transcript_path,''), COALESCE(p.metadata,''),
@@ -326,22 +321,6 @@ func (q *Queries) GetSessionByID(ctx context.Context, id string) (*model.Session
 	return scanSession(row)
 }
 
-func (q *Queries) ListSessionsByRuntime(ctx context.Context, runtime string) ([]model.Session, error) {
-	rows, err := q.db.QueryContext(ctx, `
-		SELECT s.id, COALESCE(s.parent_session_id,''), s.project_id, COALESCE(p.slug,''), COALESCE(p.name,''),
-			COALESCE(s.slug,''), COALESCE(s.status,''), COALESCE(s.runtime,'claude'), s.started_at, COALESCE(s.stopped_at,0),
-			COALESCE(s.transcript_path,''), COALESCE(s.metadata,''),
-			s.event_count, s.agent_count, COALESCE(s.last_activity,0), s.created_at, s.updated_at
-		FROM sessions s LEFT JOIN projects p ON p.id = s.project_id
-		WHERE s.runtime = ? AND s.transcript_path != ''
-		ORDER BY s.started_at DESC`, runtime)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	return scanSessions(rows)
-}
-
 func (q *Queries) ListSessionsForProject(ctx context.Context, projectID int64) ([]model.Session, error) {
 	rows, err := q.db.QueryContext(ctx, `
 		SELECT s.id, COALESCE(s.parent_session_id,''), s.project_id, COALESCE(p.slug,''), COALESCE(p.name,''),
@@ -408,16 +387,6 @@ func (q *Queries) UpdateSessionStatus(ctx context.Context, id, status string) er
 	}
 	_, err := q.db.ExecContext(ctx, `UPDATE sessions SET status=?, stopped_at=?, updated_at=? WHERE id=?`,
 		status, stoppedAt, nowMillis(), id)
-	return err
-}
-
-func (q *Queries) UpdateSessionSlug(ctx context.Context, id, slug string) error {
-	_, err := q.db.ExecContext(ctx, `UPDATE sessions SET slug=?, updated_at=? WHERE id=?`, slug, nowMillis(), id)
-	return err
-}
-
-func (q *Queries) UpdateSessionProject(ctx context.Context, id string, projectID int64) error {
-	_, err := q.db.ExecContext(ctx, `UPDATE sessions SET project_id=?, updated_at=? WHERE id=?`, projectID, nowMillis(), id)
 	return err
 }
 
@@ -592,28 +561,6 @@ func (q *Queries) GetAgentByID(ctx context.Context, id string) (*model.Agent, er
 	return &a, nil
 }
 
-func (q *Queries) ListAgentsForSession(ctx context.Context, sessionID string) ([]model.Agent, error) {
-	rows, err := q.db.QueryContext(ctx, `
-		SELECT id, session_id, COALESCE(parent_agent_id,''), COALESCE(name,''), COALESCE(description,''),
-			COALESCE(agent_type,''), COALESCE(agent_class,''), COALESCE(status,'active'), COALESCE(transcript_path,''), COALESCE(metadata,''),
-			created_at, updated_at
-		FROM agents WHERE session_id = ? ORDER BY created_at ASC`, sessionID)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var out []model.Agent
-	for rows.Next() {
-		var a model.Agent
-		if err := rows.Scan(&a.ID, &a.SessionID, &a.ParentAgentID, &a.Name, &a.Description,
-			&a.AgentType, &a.AgentClass, &a.Status, &a.TranscriptPath, &a.Metadata, &a.CreatedAt, &a.UpdatedAt); err != nil {
-			return nil, err
-		}
-		out = append(out, a)
-	}
-	return out, rows.Err()
-}
-
 // ListAgentsForSessionTree returns agents from the session and all its
 // descendant sessions (recursive). Child-session agents get their
 // parent_agent_id set to their parent session's ID so they render as a
@@ -742,16 +689,6 @@ func (q *Queries) ListEventsForSessionTree(ctx context.Context, sessionID string
 	return scanEvents(rows)
 }
 
-func (q *Queries) UpdateAgentType(ctx context.Context, id, agentType string) error {
-	_, err := q.db.ExecContext(ctx, `UPDATE agents SET agent_type=?, updated_at=? WHERE id=?`, agentType, nowMillis(), id)
-	return err
-}
-
-func (q *Queries) UpdateAgentName(ctx context.Context, id, name string) error {
-	_, err := q.db.ExecContext(ctx, `UPDATE agents SET name=?, updated_at=? WHERE id=?`, name, nowMillis(), id)
-	return err
-}
-
 // ── Events ──
 
 func (q *Queries) InsertEvent(ctx context.Context, event model.Event) (int64, error) {
@@ -815,12 +752,6 @@ func (q *Queries) HasOpenCodeNormalizedUserPrompt(ctx context.Context, sessionID
 				AND json_extract(payload, '$.message_id') = ?
 		)`, sessionID, messageID).Scan(&exists)
 	return exists, err
-}
-
-func (q *Queries) CountEventsForSession(ctx context.Context, sessionID string) (int, error) {
-	var count int
-	err := q.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM events WHERE session_id = ?", sessionID).Scan(&count)
-	return count, err
 }
 
 func (q *Queries) ListEventsForSession(ctx context.Context, sessionID string, f model.EventFilter) ([]model.Event, error) {
@@ -1011,15 +942,6 @@ func (q *Queries) TakePendingAgentSpawn(ctx context.Context, toolUseID string) (
 }
 
 // ── Utility ──
-
-func (q *Queries) ClearAllData(ctx context.Context) error {
-	for _, t := range []string{"events", "agents", "pending_agent_spawns", "pending_agent_queue", "sessions", "projects"} {
-		if _, err := q.db.ExecContext(ctx, "DELETE FROM "+t); err != nil {
-			return err
-		}
-	}
-	return nil
-}
 
 // ── scan helpers ──
 

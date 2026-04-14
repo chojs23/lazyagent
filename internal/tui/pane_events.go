@@ -21,7 +21,6 @@ type eventsModel struct {
 	hScroll      int
 	autoFollow   bool
 	height       int
-	width        int
 }
 
 func newEvents() eventsModel {
@@ -105,7 +104,6 @@ func (e *eventsModel) selectedEvent() *model.Event {
 
 func (e *eventsModel) view(width, height int, focused bool, agentMap map[string]agentInfo) string {
 	e.height = height
-	e.width = width
 
 	// header
 	header := fmt.Sprintf("Events: %d", len(e.events))
