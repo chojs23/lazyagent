@@ -662,7 +662,9 @@ func appendEventFilterConditions(parts []string, args []any, f model.EventFilter
 		}
 		parts = append(parts, fmt.Sprintf("AND agent_id IN (%s)", strings.Join(placeholders, ",")))
 	}
-	if f.Type != "" {
+	if f.Type == "codechange" {
+		parts = append(parts, "AND (tool_name IN ('Edit','Write','apply_patch','NotebookEdit') OR subtype IN ('FileEdited','SessionDiff'))")
+	} else if f.Type != "" {
 		parts = append(parts, "AND type = ?")
 		args = append(args, f.Type)
 	}
@@ -808,27 +810,7 @@ func (q *Queries) CountEventsForSession(ctx context.Context, sessionID string) (
 func (q *Queries) ListEventsForSession(ctx context.Context, sessionID string, f model.EventFilter) ([]model.Event, error) {
 	parts := []string{"SELECT id, agent_id, session_id, type, COALESCE(subtype,''), COALESCE(tool_name,''), COALESCE(tool_use_id,''), timestamp, created_at, payload FROM events WHERE session_id = ?"}
 	args := []any{sessionID}
-
-	if len(f.AgentIDs) > 0 {
-		placeholders := make([]string, len(f.AgentIDs))
-		for i, id := range f.AgentIDs {
-			placeholders[i] = "?"
-			args = append(args, id)
-		}
-		parts = append(parts, fmt.Sprintf("AND agent_id IN (%s)", strings.Join(placeholders, ",")))
-	}
-	if f.Type != "" {
-		parts = append(parts, "AND type = ?")
-		args = append(args, f.Type)
-	}
-	if f.Subtype != "" {
-		parts = append(parts, "AND subtype = ?")
-		args = append(args, f.Subtype)
-	}
-	if f.Search != "" {
-		parts = append(parts, "AND payload LIKE ?")
-		args = append(args, "%"+f.Search+"%")
-	}
+	parts, args = appendEventFilterConditions(parts, args, f)
 	parts = append(parts, "ORDER BY timestamp ASC")
 	if f.Limit > 0 {
 		parts = append(parts, "LIMIT ?")

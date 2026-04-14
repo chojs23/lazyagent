@@ -321,15 +321,25 @@ func (d *detailModel) renderToolDetail(ev *model.Event) string {
 	case "Edit":
 		return joinNonEmpty("\n",
 			field("File", get("file_path")),
-			block("Old", get("old_string")),
-			block("New", get("new_string")),
+			d.renderDiffBlock("Diff", get("old_string"), get("new_string"), expand),
 			block("Result", response),
 		)
 
 	case "Write":
+		content := get("content")
 		return joinNonEmpty("\n",
 			field("File", get("file_path")),
-			block("Content", get("content")),
+			d.renderAdditionsBlock("Content", content, expand),
+			block("Result", response),
+		)
+
+	case "apply_patch":
+		patch := get("input")
+		if patch == "" {
+			patch = get("patch")
+		}
+		return joinNonEmpty("\n",
+			d.renderPatchBlock("Patch", patch, expand),
 			block("Result", response),
 		)
 
@@ -368,6 +378,104 @@ func (d *detailModel) renderToolDetail(ev *model.Event) string {
 		}
 		return d.renderGenericDetail(payload)
 	}
+}
+
+// renderDiffBlock renders old_string and new_string as a colored unified diff.
+func (d *detailModel) renderDiffBlock(label, oldStr, newStr string, expand bool) string {
+	if oldStr == "" && newStr == "" {
+		return ""
+	}
+	headerStyle := lipgloss.NewStyle().Foreground(colorCyan).Bold(true)
+	removeStyle := lipgloss.NewStyle().Foreground(colorRed)
+	addStyle := lipgloss.NewStyle().Foreground(colorGreen)
+
+	var lines []string
+	if oldStr != "" {
+		for _, l := range strings.Split(oldStr, "\n") {
+			lines = append(lines, removeStyle.Render("- "+l))
+		}
+	}
+	if newStr != "" {
+		for _, l := range strings.Split(newStr, "\n") {
+			lines = append(lines, addStyle.Render("+ "+l))
+		}
+	}
+
+	totalLines := len(lines)
+	if !expand && totalLines > 20 {
+		lines = lines[:20]
+		return headerStyle.Render(label+fmt.Sprintf(" (%d lines):", totalLines)) + "\n" +
+			strings.Join(lines, "\n") + "\n" +
+			dimStyle.Render(fmt.Sprintf("  ... (%d more lines, e to expand)", totalLines-20))
+	}
+	return headerStyle.Render(label+":") + "\n" + strings.Join(lines, "\n")
+}
+
+// renderAdditionsBlock renders content as all-additions (green + prefix).
+func (d *detailModel) renderAdditionsBlock(label, content string, expand bool) string {
+	if content == "" {
+		return ""
+	}
+	headerStyle := lipgloss.NewStyle().Foreground(colorCyan).Bold(true)
+	addStyle := lipgloss.NewStyle().Foreground(colorGreen)
+
+	raw := strings.Split(content, "\n")
+	totalLines := len(raw)
+	if !expand && totalLines > 20 {
+		raw = raw[:20]
+	}
+
+	var lines []string
+	for _, l := range raw {
+		lines = append(lines, addStyle.Render("+ "+l))
+	}
+
+	if !expand && totalLines > 20 {
+		return headerStyle.Render(label+fmt.Sprintf(" (%d lines):", totalLines)) + "\n" +
+			strings.Join(lines, "\n") + "\n" +
+			dimStyle.Render(fmt.Sprintf("  ... (%d more lines, e to expand)", totalLines-20))
+	}
+	return headerStyle.Render(label+":") + "\n" + strings.Join(lines, "\n")
+}
+
+// renderPatchBlock renders a unified patch with diff coloring.
+func (d *detailModel) renderPatchBlock(label, patch string, expand bool) string {
+	if patch == "" {
+		return ""
+	}
+	headerStyle := lipgloss.NewStyle().Foreground(colorCyan).Bold(true)
+	removeStyle := lipgloss.NewStyle().Foreground(colorRed)
+	addStyle := lipgloss.NewStyle().Foreground(colorGreen)
+	metaStyle := lipgloss.NewStyle().Foreground(colorMagenta)
+
+	raw := strings.Split(patch, "\n")
+	totalLines := len(raw)
+	if !expand && totalLines > 40 {
+		raw = raw[:40]
+	}
+
+	var lines []string
+	for _, l := range raw {
+		switch {
+		case strings.HasPrefix(l, "-"):
+			lines = append(lines, removeStyle.Render(l))
+		case strings.HasPrefix(l, "+"):
+			lines = append(lines, addStyle.Render(l))
+		case strings.HasPrefix(l, "***"):
+			lines = append(lines, metaStyle.Render(l))
+		case strings.HasPrefix(l, "@@"):
+			lines = append(lines, metaStyle.Render(l))
+		default:
+			lines = append(lines, dimStyle.Render(l))
+		}
+	}
+
+	if !expand && totalLines > 40 {
+		return headerStyle.Render(label+fmt.Sprintf(" (%d lines):", totalLines)) + "\n" +
+			strings.Join(lines, "\n") + "\n" +
+			dimStyle.Render(fmt.Sprintf("  ... (%d more lines, e to expand)", totalLines-40))
+	}
+	return headerStyle.Render(label+":") + "\n" + strings.Join(lines, "\n")
 }
 
 func asMapSafe(v any) map[string]any {
