@@ -73,6 +73,11 @@ func (f *filterModel) cancelSearch() {
 	f.searchInput.SetValue(f.searchQuery)
 }
 
+func (f *filterModel) clearSearch() {
+	f.searchQuery = ""
+	f.searchInput.SetValue("")
+}
+
 func (f *filterModel) view(width int) string {
 	if f.searchMode {
 		return f.searchInput.View()

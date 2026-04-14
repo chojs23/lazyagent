@@ -113,10 +113,8 @@ func (m *Model) syncLayout() {
 }
 
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
-	if m.filter.searchMode {
-		return m.updateSearch(msg)
-	}
-
+	// Handle non-key messages first so they are processed regardless of
+	// whether the search input is active.
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
@@ -152,7 +150,15 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.agents.tick()
 		m.projects.tick()
 		return m, spinnerTickCmd()
+	}
 
+	// While the search input is focused, route remaining messages
+	// (primarily key events) to the search handler.
+	if m.filter.searchMode {
+		return m.updateSearch(msg)
+	}
+
+	switch msg := msg.(type) {
 	case tea.KeyMsg:
 		return m.handleKey(msg)
 	}
@@ -199,6 +205,10 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.focus = focusDetail
 		m.syncLayout()
 		return m, nil
+	case msg.Key().Code == tea.KeyEscape && m.filter.searchQuery != "":
+		m.filter.clearSearch()
+		m.status = "Search: off"
+		return m, m.loadDataCmd()
 	case key.Matches(msg, m.keys.Search):
 		m.filter.enterSearch()
 		m.status = "Type search query, enter to apply, esc to cancel"
@@ -441,13 +451,13 @@ func (m Model) updateEvents(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 func (m Model) updateSearch(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
-		switch msg.String() {
-		case "enter":
+		switch msg.Key().Code {
+		case tea.KeyEnter:
 			m.filter.commitSearch()
 			m.status = "Search: " + orDefault(m.filter.searchQuery, "off")
 			m.syncLayout()
 			return m, m.loadDataCmd()
-		case "esc":
+		case tea.KeyEscape:
 			m.filter.cancelSearch()
 			m.status = "Search cancelled"
 			m.syncLayout()
