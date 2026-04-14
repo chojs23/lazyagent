@@ -4,3 +4,4 @@ result
 *.db
 *.db-wal
 *.db-shm
+plugins/opencode/node_modules/
