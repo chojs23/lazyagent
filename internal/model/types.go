@@ -3,7 +3,6 @@ package model
 import (
 	"bytes"
 	"encoding/json"
-	"fmt"
 	"strings"
 )
 
@@ -133,18 +132,4 @@ func (e Event) PayloadPretty() string {
 		return e.Payload
 	}
 	return strings.TrimSpace(buf.String())
-}
-
-func EventSummary(e Event) string {
-	var parts []string
-	if e.Subtype != "" {
-		parts = append(parts, e.Subtype)
-	}
-	if e.ToolName != "" {
-		parts = append(parts, fmt.Sprintf("tool=%s", e.ToolName))
-	}
-	if len(parts) == 0 {
-		parts = append(parts, e.Type)
-	}
-	return strings.Join(parts, " ")
 }

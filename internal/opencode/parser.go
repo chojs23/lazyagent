@@ -135,7 +135,7 @@ func ParseRawEvent(raw map[string]any) model.ParsedEvent {
 			}
 		}
 	case "session.diff":
-		for _, k := range []string{"diff_file_count", "diff_additions", "diff_deletions"} {
+		for _, k := range []string{"diff_file_count", "diff_additions", "diff_deletions", "diff_files"} {
 			if v, ok := raw[k]; ok {
 				p.Metadata[k] = v
 			}

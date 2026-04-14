@@ -208,6 +208,10 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.filter.cycleType()
 		m.status = "Filter: " + m.filter.typeLabel()
 		return m, m.loadDataCmd()
+	case key.Matches(msg, m.keys.CycleTypeRev):
+		m.filter.cycleTypeReverse()
+		m.status = "Filter: " + m.filter.typeLabel()
+		return m, m.loadDataCmd()
 	case key.Matches(msg, m.keys.ToggleAuto):
 		m.events.toggleAutoFollow()
 		m.status = "Auto-follow: " + onOff(m.events.autoFollow)

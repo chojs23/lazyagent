@@ -21,7 +21,6 @@ type eventsModel struct {
 	hScroll      int
 	autoFollow   bool
 	height       int
-	width        int
 }
 
 func newEvents() eventsModel {
@@ -105,7 +104,6 @@ func (e *eventsModel) selectedEvent() *model.Event {
 
 func (e *eventsModel) view(width, height int, focused bool, agentMap map[string]agentInfo) string {
 	e.height = height
-	e.width = width
 
 	// header
 	header := fmt.Sprintf("Events: %d", len(e.events))
@@ -249,8 +247,31 @@ func eventBrief(ev model.Event) string {
 			return truncate(firstLine(getStr(input, "command")), 80)
 		case "Read":
 			return pick(getStr(input, "file_path"), getStr(input, "filePath"))
-		case "Edit", "Write":
-			return pick(getStr(input, "file_path"), getStr(input, "filePath"))
+		case "Edit":
+			filePath := pick(getStr(input, "file_path"), getStr(input, "filePath"))
+			oldStr := pick(getStr(input, "old_string"), getStr(input, "oldString"))
+			newStr := pick(getStr(input, "new_string"), getStr(input, "newString"))
+			stats := editDiffStats(oldStr, newStr)
+			if stats != "" {
+				return truncate(filePath+" "+stats, 80)
+			}
+			return filePath
+		case "Write":
+			filePath := pick(getStr(input, "file_path"), getStr(input, "filePath"))
+			if content := getStr(input, "content"); content != "" {
+				n := strings.Count(content, "\n") + 1
+				return truncate(fmt.Sprintf("%s (+%d)", filePath, n), 80)
+			}
+			return filePath
+		case "apply_patch":
+			patch := pick(getStr(input, "input"), getStr(input, "patch"), getStr(input, "patchText"))
+			if patch == "" {
+				if meta := asMapSafe(p["metadata"]); len(meta) > 0 {
+					patch = getStr(meta, "diff")
+				}
+			}
+			stats := patchDiffStats(patch)
+			return truncate(stats, 80)
 		case "Grep":
 			s := getStr(input, "pattern")
 			if path := getStr(input, "path"); path != "" {
@@ -286,8 +307,37 @@ func eventBrief(ev model.Event) string {
 			return truncate(firstLine(out), 80)
 		case "Read":
 			return truncate(pick(getStr(input, "file_path"), getStr(input, "filePath"), ocOutput), 80)
-		case "Edit", "Write":
-			return truncate(pick(getStr(input, "file_path"), getStr(input, "filePath"), ocOutput), 80)
+		case "Edit":
+			filePath := pick(getStr(input, "file_path"), getStr(input, "filePath"), ocOutput)
+			oldStr := pick(getStr(input, "old_string"), getStr(input, "oldString"))
+			newStr := pick(getStr(input, "new_string"), getStr(input, "newString"))
+			stats := editDiffStats(oldStr, newStr)
+			// fallback: try metadata.diff from OpenCode PostToolUse
+			if stats == "" {
+				if meta := asMapSafe(p["metadata"]); len(meta) > 0 {
+					stats = patchDiffStats(getStr(meta, "diff"))
+				}
+			}
+			if stats != "" {
+				return truncate(filePath+" "+stats, 80)
+			}
+			return truncate(filePath, 80)
+		case "Write":
+			filePath := pick(getStr(input, "file_path"), getStr(input, "filePath"), ocOutput)
+			if content := getStr(input, "content"); content != "" {
+				n := strings.Count(content, "\n") + 1
+				return truncate(fmt.Sprintf("%s (+%d)", filePath, n), 80)
+			}
+			return truncate(filePath, 80)
+		case "apply_patch":
+			patch := pick(getStr(input, "input"), getStr(input, "patch"), getStr(input, "patchText"))
+			if patch == "" {
+				if meta := asMapSafe(p["metadata"]); len(meta) > 0 {
+					patch = getStr(meta, "diff")
+				}
+			}
+			stats := patchDiffStats(patch)
+			return truncate(stats, 80)
 		default:
 			resp := getStr(p, "tool_response")
 			if resp == "" {
@@ -392,6 +442,15 @@ func eventBrief(ev model.Event) string {
 	}
 }
 
+// splitLines splits a string into lines, returning nil for empty input
+// instead of []string{""} which strings.Split produces.
+func splitLines(s string) []string {
+	if s == "" {
+		return nil
+	}
+	return strings.Split(s, "\n")
+}
+
 // pick returns the first non-empty string.
 func pick(vals ...string) string {
 	for _, v := range vals {
@@ -400,4 +459,49 @@ func pick(vals ...string) string {
 		}
 	}
 	return ""
+}
+
+// editDiffStats computes diff stats from old_string/new_string using Myers diff.
+func editDiffStats(oldStr, newStr string) string {
+	if oldStr == "" && newStr == "" {
+		return ""
+	}
+	oldLines := splitLines(oldStr)
+	newLines := splitLines(newStr)
+	script := ComputeDiff(oldLines, newLines)
+	s := Stats(script)
+	if s.Additions == 0 && s.Deletions == 0 {
+		return ""
+	}
+	return fmt.Sprintf("(+%d -%d)", s.Additions, s.Deletions)
+}
+
+// patchDiffStats counts +/- lines in a unified patch or Codex apply_patch format.
+// Skips diff metadata lines (---, +++, *** headers) to avoid inflating counts.
+func patchDiffStats(patch string) string {
+	if patch == "" {
+		return ""
+	}
+	var adds, dels int
+	for _, line := range strings.Split(patch, "\n") {
+		if len(line) == 0 {
+			continue
+		}
+		switch {
+		case strings.HasPrefix(line, "+++"):
+			// unified diff header, skip
+		case strings.HasPrefix(line, "---"):
+			// unified diff header, skip
+		case strings.HasPrefix(line, "***"):
+			// Codex patch metadata, skip
+		case strings.HasPrefix(line, "+"):
+			adds++
+		case strings.HasPrefix(line, "-"):
+			dels++
+		}
+	}
+	if adds == 0 && dels == 0 {
+		return "patch"
+	}
+	return fmt.Sprintf("(+%d -%d)", adds, dels)
 }

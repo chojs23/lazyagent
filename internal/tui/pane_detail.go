@@ -216,11 +216,34 @@ func (d *detailModel) renderToolDetail(ev *model.Event) string {
 			field("Retry Message", get("retry_message")),
 		)
 	case "SessionDiff":
-		return joinNonEmpty("\n",
+		header := joinNonEmpty("\n",
 			field("Files Changed", get("diff_file_count")),
 			field("Additions", get("diff_additions")),
 			field("Deletions", get("diff_deletions")),
 		)
+		// Show per-file patches if available (OpenCode diff_files)
+		if filesRaw, ok := payload["diff_files"]; ok {
+			if files, ok := filesRaw.([]any); ok {
+				var patches []string
+				for _, f := range files {
+					fm, _ := f.(map[string]any)
+					if fm == nil {
+						continue
+					}
+					filePath := getStr(fm, "file")
+					patch := getStr(fm, "patch")
+					if patch != "" {
+						patches = append(patches, d.renderPatchBlock(filePath, patch, expand))
+					} else if filePath != "" {
+						patches = append(patches, field("File", filePath))
+					}
+				}
+				if len(patches) > 0 {
+					return header + "\n" + strings.Join(patches, "\n")
+				}
+			}
+		}
+		return header
 	case "PermissionReply":
 		return joinNonEmpty("\n",
 			field("Reply", get("reply")),
@@ -319,18 +342,45 @@ func (d *detailModel) renderToolDetail(ev *model.Event) string {
 		)
 
 	case "Edit":
+		filePath := pick(get("file_path"), get("filePath"))
+		oldStr := pick(get("old_string"), get("oldString"))
+		newStr := pick(get("new_string"), get("newString"))
+
+		// OpenCode PostToolUse: metadata contains a precomputed unified diff
+		metaDiff := ""
+		if meta := asMapSafe(payload["metadata"]); len(meta) > 0 {
+			metaDiff = getStr(meta, "diff")
+		}
+
+		var diffBlock string
+		if oldStr != "" || newStr != "" {
+			diffBlock = d.renderDiffBlock("Diff", filePath, oldStr, newStr, expand)
+		} else if metaDiff != "" {
+			diffBlock = d.renderPatchBlock("Diff", metaDiff, expand)
+		}
+
 		return joinNonEmpty("\n",
-			field("File", get("file_path")),
-			block("Old", get("old_string")),
-			block("New", get("new_string")),
-			block("Result", response),
+			field("File", filePath),
+			diffBlock,
 		)
 
 	case "Write":
+		filePath := pick(get("file_path"), get("filePath"))
 		return joinNonEmpty("\n",
-			field("File", get("file_path")),
-			block("Content", get("content")),
-			block("Result", response),
+			field("File", filePath),
+			d.renderAdditionsBlock("Content", filePath, get("content"), expand),
+		)
+
+	case "apply_patch":
+		patch := pick(get("input"), get("patch"), get("patchText"))
+		// OpenCode PostToolUse: metadata contains a precomputed unified diff
+		if patch == "" {
+			if meta := asMapSafe(payload["metadata"]); len(meta) > 0 {
+				patch = getStr(meta, "diff")
+			}
+		}
+		return joinNonEmpty("\n",
+			d.renderPatchBlock("Patch", patch, expand),
 		)
 
 	case "Grep":
@@ -368,6 +418,138 @@ func (d *detailModel) renderToolDetail(ev *model.Event) string {
 		}
 		return d.renderGenericDetail(payload)
 	}
+}
+
+// renderDiffBlock renders old_string and new_string as a colored unified diff
+// using the Myers diff algorithm with 3 lines of context and syntax highlighting.
+func (d *detailModel) renderDiffBlock(label, filePath, oldStr, newStr string, expand bool) string {
+	if oldStr == "" && newStr == "" {
+		return ""
+	}
+	headerStyle := lipgloss.NewStyle().Foreground(colorCyan).Bold(true)
+	removePrefix := lipgloss.NewStyle().Foreground(colorRed).Render("- ")
+	addPrefix := lipgloss.NewStyle().Foreground(colorGreen).Render("+ ")
+	sepStyle := lipgloss.NewStyle().Foreground(colorMagenta)
+
+	lang := langFromPath(filePath)
+	oldLines := splitLines(oldStr)
+	newLines := splitLines(newStr)
+	script := ComputeDiff(oldLines, newLines)
+	stats := Stats(script)
+
+	contextScript := WithContext(script, 3)
+
+	var lines []string
+	for _, dl := range contextScript {
+		switch dl.Op {
+		case DiffDelete:
+			lines = append(lines, removePrefix+highlightLine(dl.Text, lang, hlBgDel))
+		case DiffInsert:
+			lines = append(lines, addPrefix+highlightLine(dl.Text, lang, hlBgAdd))
+		case DiffEqual:
+			if dl.Text == "~~~" {
+				lines = append(lines, sepStyle.Render("  ~~~"))
+			} else {
+				lines = append(lines, dimStyle.Render("  ")+highlightLine(dl.Text, lang))
+			}
+		}
+	}
+
+	statsStr := fmt.Sprintf(" (+%d -%d)", stats.Additions, stats.Deletions)
+	totalLines := len(lines)
+	if !expand && totalLines > 30 {
+		lines = lines[:30]
+		return headerStyle.Render(label+statsStr+fmt.Sprintf(" (%d lines):", totalLines)) + "\n" +
+			strings.Join(lines, "\n") + "\n" +
+			dimStyle.Render(fmt.Sprintf("  ... (%d more lines, e to expand)", totalLines-30))
+	}
+	return headerStyle.Render(label+statsStr+":") + "\n" + strings.Join(lines, "\n")
+}
+
+// renderAdditionsBlock renders content as all-additions (green + prefix)
+// with syntax highlighting based on file extension.
+func (d *detailModel) renderAdditionsBlock(label, filePath, content string, expand bool) string {
+	if content == "" {
+		return ""
+	}
+	headerStyle := lipgloss.NewStyle().Foreground(colorCyan).Bold(true)
+	addPrefix := lipgloss.NewStyle().Foreground(colorGreen).Render("+ ")
+
+	lang := langFromPath(filePath)
+	raw := strings.Split(content, "\n")
+	totalLines := len(raw)
+	if !expand && totalLines > 20 {
+		raw = raw[:20]
+	}
+
+	var lines []string
+	for _, l := range raw {
+		lines = append(lines, addPrefix+highlightLine(l, lang, hlBgAdd))
+	}
+
+	if !expand && totalLines > 20 {
+		return headerStyle.Render(label+fmt.Sprintf(" (%d lines):", totalLines)) + "\n" +
+			strings.Join(lines, "\n") + "\n" +
+			dimStyle.Render(fmt.Sprintf("  ... (%d more lines, e to expand)", totalLines-20))
+	}
+	return headerStyle.Render(label+":") + "\n" + strings.Join(lines, "\n")
+}
+
+// renderPatchBlock renders a unified patch with diff coloring and syntax highlighting.
+// It detects the file path from patch headers (*** Update File: path, --- a/path, etc.)
+// and applies language-appropriate highlighting to changed lines.
+func (d *detailModel) renderPatchBlock(label, patch string, expand bool) string {
+	if patch == "" {
+		return ""
+	}
+	headerStyle := lipgloss.NewStyle().Foreground(colorCyan).Bold(true)
+	removePrefix := lipgloss.NewStyle().Foreground(colorRed).Render("-")
+	addPrefix := lipgloss.NewStyle().Foreground(colorGreen).Render("+")
+	metaStyle := lipgloss.NewStyle().Foreground(colorMagenta)
+
+	raw := strings.Split(patch, "\n")
+	totalLines := len(raw)
+	if !expand && totalLines > 40 {
+		raw = raw[:40]
+	}
+
+	var lang string
+	var lines []string
+	for _, l := range raw {
+		switch {
+		case strings.HasPrefix(l, "*** ") && strings.Contains(l, "File:"):
+			// Codex format: *** Update File: path/to/file.go
+			if idx := strings.Index(l, "File:"); idx >= 0 {
+				filePath := strings.TrimSpace(l[idx+5:])
+				lang = langFromPath(filePath)
+			}
+			lines = append(lines, metaStyle.Render(l))
+		case strings.HasPrefix(l, "--- "):
+			// unified diff: --- a/path/to/file.go
+			filePath := strings.TrimPrefix(strings.TrimPrefix(l, "--- "), "a/")
+			lang = langFromPath(filePath)
+			lines = append(lines, metaStyle.Render(l))
+		case strings.HasPrefix(l, "+++ "):
+			lines = append(lines, metaStyle.Render(l))
+		case strings.HasPrefix(l, "-"):
+			lines = append(lines, removePrefix+highlightLine(l[1:], lang, hlBgDel))
+		case strings.HasPrefix(l, "+"):
+			lines = append(lines, addPrefix+highlightLine(l[1:], lang, hlBgAdd))
+		case strings.HasPrefix(l, "***"):
+			lines = append(lines, metaStyle.Render(l))
+		case strings.HasPrefix(l, "@@"):
+			lines = append(lines, metaStyle.Render(l))
+		default:
+			lines = append(lines, dimStyle.Render(l))
+		}
+	}
+
+	if !expand && totalLines > 40 {
+		return headerStyle.Render(label+fmt.Sprintf(" (%d lines):", totalLines)) + "\n" +
+			strings.Join(lines, "\n") + "\n" +
+			dimStyle.Render(fmt.Sprintf("  ... (%d more lines, e to expand)", totalLines-40))
+	}
+	return headerStyle.Render(label+":") + "\n" + strings.Join(lines, "\n")
 }
 
 func asMapSafe(v any) map[string]any {
