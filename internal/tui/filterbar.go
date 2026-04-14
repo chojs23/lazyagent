@@ -17,6 +17,7 @@ var typeFilters = []struct {
 	{"user", "User"},
 	{"system", "System"},
 	{"session", "Session"},
+	{"codechange", "Code"},
 }
 
 type filterModel struct {
