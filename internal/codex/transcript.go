@@ -46,46 +46,13 @@ func ReadPatchEvents(sessionID, transcriptPath string) ([]model.ParsedEvent, err
 		}
 
 		payloadType := str(payload["type"])
-		switch payloadType {
-		case "patch_apply_begin":
-			ev := parsePatchBegin(sessionID, entry.Timestamp, payload)
-			events = append(events, ev)
-		case "patch_apply_end":
+		if payloadType == "patch_apply_end" {
 			ev := parsePatchEnd(sessionID, entry.Timestamp, payload)
 			events = append(events, ev)
 		}
 	}
 
 	return events, scanner.Err()
-}
-
-func parsePatchBegin(sessionID, timestamp string, payload map[string]any) model.ParsedEvent {
-	callID := str(payload["call_id"])
-	changes := asMap(payload["changes"])
-
-	// Build a combined patch text from changes
-	patchText := buildPatchText(changes)
-
-	raw := map[string]any{
-		"hook_event_name": "PreToolUse",
-		"session_id":      sessionID,
-		"tool_name":       "apply_patch",
-		"tool_use_id":     callID,
-		"tool_input": map[string]any{
-			"patchText": patchText,
-		},
-	}
-
-	return model.ParsedEvent{
-		SessionID: sessionID,
-		Type:      "tool",
-		Subtype:   "PreToolUse",
-		ToolName:  "apply_patch",
-		ToolUseID: callID,
-		Timestamp: parseTS(timestamp),
-		Metadata:  map[string]any{},
-		Raw:       raw,
-	}
 }
 
 func parsePatchEnd(sessionID, timestamp string, payload map[string]any) model.ParsedEvent {
@@ -118,39 +85,6 @@ func parsePatchEnd(sessionID, timestamp string, payload map[string]any) model.Pa
 		Metadata:  map[string]any{},
 		Raw:       raw,
 	}
-}
-
-// buildPatchText creates a Codex-style patch from the changes map.
-func buildPatchText(changes map[string]any) string {
-	if len(changes) == 0 {
-		return ""
-	}
-	var b strings.Builder
-	b.WriteString("*** Begin Patch\n")
-	for filePath, change := range changes {
-		cm := asMap(change)
-		changeType := str(cm["type"])
-		switch changeType {
-		case "add":
-			b.WriteString("*** Add File: " + filePath + "\n")
-			for _, line := range strings.Split(str(cm["content"]), "\n") {
-				b.WriteString("+" + line + "\n")
-			}
-		case "delete":
-			b.WriteString("*** Delete File: " + filePath + "\n")
-		case "update":
-			b.WriteString("*** Update File: " + filePath + "\n")
-			diff := str(cm["unified_diff"])
-			if diff != "" {
-				b.WriteString(diff)
-				if !strings.HasSuffix(diff, "\n") {
-					b.WriteString("\n")
-				}
-			}
-		}
-	}
-	b.WriteString("*** End Patch")
-	return b.String()
 }
 
 // buildUnifiedDiff creates a standard unified diff from the changes map.
