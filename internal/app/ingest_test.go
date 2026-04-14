@@ -4,9 +4,12 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
+	"github.com/chojs23/lazyagent/internal/applog"
 	"github.com/chojs23/lazyagent/internal/model"
 	"github.com/chojs23/lazyagent/internal/store"
 )
@@ -1318,6 +1321,92 @@ func TestIngestCodexLaterPromptDoesNotOverwriteExistingSlug(t *testing.T) {
 	}
 	if session.Slug != "first codex prompt" {
 		t.Fatalf("slug=%q, want first codex prompt", session.Slug)
+	}
+}
+
+func TestIngestCodexReplaysPatchEventsFromTranscript(t *testing.T) {
+	st := testStore(t)
+	ctx := context.Background()
+	transcriptPath := filepath.Join(t.TempDir(), "codex.jsonl")
+
+	line := `{"type":"event_msg","timestamp":"2026-04-14T12:00:00Z","payload":{"type":"patch_apply_end","call_id":"patch-1","success":true,"stdout":"ok","changes":{"main.go":{"type":"update","unified_diff":"@@ -1 +1 @@\n-old\n+new\n"}}}}`
+	if err := os.WriteFile(transcriptPath, []byte(line+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	_, err := IngestCodexEvent(ctx, st, map[string]any{
+		"hook_event_name": "SessionStart",
+		"session_id":      "codex-patch-1",
+		"transcript_path": transcriptPath,
+		"cwd":             "/home/user/project",
+		"model":           "gpt-5.4",
+		"permission_mode": "default",
+		"source":          "cli",
+		"timestamp":       float64(1712700000000),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	events, err := st.Read().ListEventsForSession(ctx, "codex-patch-1", model.EventFilter{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(events) != 2 {
+		t.Fatalf("got %d events, want 2", len(events))
+	}
+
+	patch := events[1]
+	if patch.ToolName != "apply_patch" {
+		t.Fatalf("tool_name=%q, want apply_patch", patch.ToolName)
+	}
+	if patch.ToolUseID != "patch-1" {
+		t.Fatalf("tool_use_id=%q, want patch-1", patch.ToolUseID)
+	}
+	if patch.Subtype != "PostToolUse" {
+		t.Fatalf("subtype=%q, want PostToolUse", patch.Subtype)
+	}
+	if !strings.Contains(patch.Payload, "\"diff\":") {
+		t.Fatalf("payload missing diff metadata: %q", patch.Payload)
+	}
+	if !strings.Contains(patch.Payload, "--- main.go") {
+		t.Fatalf("payload missing unified diff: %q", patch.Payload)
+	}
+}
+
+func TestIngestCodexLogsPatchReadErrors(t *testing.T) {
+	st := testStore(t)
+	ctx := context.Background()
+	logPath := filepath.Join(t.TempDir(), "lazyagent.log")
+	applog.SetDefault(applog.NewForPath(logPath))
+	t.Cleanup(func() {
+		applog.SetDefault(nil)
+	})
+
+	_, err := IngestCodexEvent(ctx, st, map[string]any{
+		"hook_event_name": "SessionStart",
+		"session_id":      "codex-log-1",
+		"transcript_path": filepath.Join(t.TempDir(), "missing.jsonl"),
+		"cwd":             "/home/user/project",
+		"model":           "gpt-5.4",
+		"permission_mode": "default",
+		"source":          "cli",
+		"timestamp":       float64(1712700000000),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	data, err := os.ReadFile(logPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	logText := string(data)
+	if !strings.Contains(logText, "Read Codex patch events failed") {
+		t.Fatalf("log missing context: %q", logText)
+	}
+	if !strings.Contains(logText, "missing.jsonl") {
+		t.Fatalf("log missing transcript path: %q", logText)
 	}
 }
 

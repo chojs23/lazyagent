@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/chojs23/lazyagent/internal/applog"
 	"github.com/chojs23/lazyagent/internal/claude"
 	"github.com/chojs23/lazyagent/internal/codex"
 	"github.com/chojs23/lazyagent/internal/model"
@@ -565,31 +566,8 @@ func IngestCodexEvent(ctx context.Context, st *store.Store, payload map[string]a
 		// Codex does not fire hooks for apply_patch events. Scan the
 		// transcript file and ingest any patch events not yet stored.
 		if parsed.TranscriptPath != "" {
-			patchEvents, readErr := codex.ReadPatchEvents(parsed.SessionID, parsed.TranscriptPath)
-			if readErr == nil {
-				for _, pe := range patchEvents {
-					if pe.ToolUseID == "" {
-						continue
-					}
-					exists, _ := q.EventExistsByToolUseID(ctx, parsed.SessionID, pe.ToolUseID)
-					if exists {
-						continue
-					}
-					pRaw, encErr := json.Marshal(pe.Raw)
-					if encErr != nil {
-						continue
-					}
-					q.InsertEvent(ctx, model.Event{
-						AgentID:   rootAgentID,
-						SessionID: parsed.SessionID,
-						Type:      pe.Type,
-						Subtype:   pe.Subtype,
-						ToolName:  pe.ToolName,
-						ToolUseID: pe.ToolUseID,
-						Timestamp: pe.Timestamp,
-						Payload:   string(pRaw),
-					})
-				}
+			if err := ingestCodexPatchEvents(ctx, q, parsed.SessionID, parsed.TranscriptPath, rootAgentID); err != nil {
+				return err
 			}
 		}
 
@@ -597,6 +575,54 @@ func IngestCodexEvent(ctx context.Context, st *store.Store, payload map[string]a
 	})
 
 	return result, err
+}
+
+func ingestCodexPatchEvents(ctx context.Context, q *store.Queries, sessionID, transcriptPath, rootAgentID string) error {
+	patchEvents, err := codex.ReadPatchEvents(sessionID, transcriptPath)
+	if err != nil {
+		applog.Error("Read Codex patch events failed", fmt.Errorf("session %s transcript %s: %w", sessionID, transcriptPath, err))
+		return nil
+	}
+
+	for _, pe := range patchEvents {
+		if pe.ToolUseID == "" {
+			continue
+		}
+
+		exists, err := q.EventExistsByToolUseID(ctx, sessionID, pe.ToolUseID)
+		if err != nil {
+			err = fmt.Errorf("check Codex patch event %q: %w", pe.ToolUseID, err)
+			applog.Error("Codex patch dedupe failed", err)
+			return err
+		}
+		if exists {
+			continue
+		}
+
+		pRaw, err := json.Marshal(pe.Raw)
+		if err != nil {
+			err = fmt.Errorf("encode Codex patch event %q: %w", pe.ToolUseID, err)
+			applog.Error("Codex patch encode failed", err)
+			return err
+		}
+
+		if _, err := q.InsertEvent(ctx, model.Event{
+			AgentID:   rootAgentID,
+			SessionID: sessionID,
+			Type:      pe.Type,
+			Subtype:   pe.Subtype,
+			ToolName:  pe.ToolName,
+			ToolUseID: pe.ToolUseID,
+			Timestamp: pe.Timestamp,
+			Payload:   string(pRaw),
+		}); err != nil {
+			err = fmt.Errorf("insert Codex patch event %q: %w", pe.ToolUseID, err)
+			applog.Error("Codex patch insert failed", err)
+			return err
+		}
+	}
+
+	return nil
 }
 
 func codexPromptSlug(prompt string) string {
