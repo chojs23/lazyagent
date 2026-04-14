@@ -17,12 +17,16 @@ type debugEntry struct {
 }
 
 type debugOverlay struct {
+	mu      sync.RWMutex
 	visible bool
 	entries []debugEntry
 	scroll  int
 }
 
 func (d *debugOverlay) toggle() {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+
 	d.visible = !d.visible
 	if d.visible {
 		// Reset scroll to bottom on open.
@@ -31,6 +35,9 @@ func (d *debugOverlay) toggle() {
 }
 
 func (d *debugOverlay) add(format string, args ...any) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+
 	entry := debugEntry{
 		time:    time.Now(),
 		message: fmt.Sprintf(format, args...),
@@ -42,20 +49,68 @@ func (d *debugOverlay) add(format string, args ...any) {
 }
 
 func (d *debugOverlay) clear() {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+
 	d.entries = d.entries[:0]
 	d.scroll = 0
 }
 
 func (d *debugOverlay) scrollUp(n int) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+
 	d.scroll = min(d.scroll+n, max(len(d.entries)-1, 0))
 }
 
 func (d *debugOverlay) scrollDown(n int) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+
 	d.scroll = max(d.scroll-n, 0)
 }
 
-func (d debugOverlay) view(width, height int) string {
-	if !d.visible {
+func (d *debugOverlay) scrollToNewest() {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+
+	d.scroll = 0
+}
+
+func (d *debugOverlay) scrollToOldest() {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+
+	d.scroll = max(len(d.entries)-1, 0)
+}
+
+func (d *debugOverlay) isVisible() bool {
+	d.mu.RLock()
+	defer d.mu.RUnlock()
+
+	return d.visible
+}
+
+type debugOverlaySnapshot struct {
+	visible bool
+	entries []debugEntry
+	scroll  int
+}
+
+func (d *debugOverlay) snapshot() debugOverlaySnapshot {
+	d.mu.RLock()
+	defer d.mu.RUnlock()
+
+	return debugOverlaySnapshot{
+		visible: d.visible,
+		scroll:  d.scroll,
+		entries: append([]debugEntry(nil), d.entries...),
+	}
+}
+
+func (d *debugOverlay) view(width, height int) string {
+	snapshot := d.snapshot()
+	if !snapshot.visible {
 		return ""
 	}
 
@@ -66,7 +121,7 @@ func (d debugOverlay) view(width, height int) string {
 	hint := dimStyle.Render("j/k scroll  c clear  ` close")
 	header := title + "  " + hint
 
-	if len(d.entries) == 0 {
+	if len(snapshot.entries) == 0 {
 		content := strings.Join([]string{header, "", dimStyle.Render("(empty)")}, "\n")
 		return lipgloss.NewStyle().
 			Border(lipgloss.RoundedBorder()).
@@ -78,7 +133,7 @@ func (d debugOverlay) view(width, height int) string {
 	}
 
 	// Build visible lines from the bottom (newest first), offset by scroll.
-	end := len(d.entries) - d.scroll
+	end := len(snapshot.entries) - snapshot.scroll
 	start := max(end-viewHeight, 0)
 	if end <= 0 {
 		end = 1
@@ -86,8 +141,8 @@ func (d debugOverlay) view(width, height int) string {
 	}
 
 	var lines []string
-	for i := start; i < end && i < len(d.entries); i++ {
-		e := d.entries[i]
+	for i := start; i < end && i < len(snapshot.entries); i++ {
+		e := snapshot.entries[i]
 		ts := dimStyle.Render(e.time.Format("15:04:05.000"))
 		msg := lipgloss.NewStyle().
 			Width(bodyWidth - 16).
@@ -96,8 +151,8 @@ func (d debugOverlay) view(width, height int) string {
 	}
 
 	scrollInfo := ""
-	if d.scroll > 0 {
-		scrollInfo = dimStyle.Render(fmt.Sprintf(" (+%d newer)", d.scroll))
+	if snapshot.scroll > 0 {
+		scrollInfo = dimStyle.Render(fmt.Sprintf(" (+%d newer)", snapshot.scroll))
 	}
 
 	content := strings.Join(append([]string{header + scrollInfo, ""}, lines...), "\n")

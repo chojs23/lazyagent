@@ -66,7 +66,7 @@ type Model struct {
 	lastKey   string
 
 	errorOverlay errorOverlay
-	debug        debugOverlay
+	debug        *debugOverlay
 
 	allProjects []model.Project
 	allSessions []model.Session
@@ -92,8 +92,9 @@ func newModel(st *store.Store, refreshInterval time.Duration) Model {
 		filter:          newFilter(),
 		focus:           focusProjects,
 		status:          "Loading...",
+		debug:           &debugOverlay{},
 	}
-	setGlobalDebug(&m.debug)
+	setGlobalDebug(m.debug)
 	return m
 }
 
@@ -163,7 +164,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	// When the debug overlay is open, capture keys for its navigation
 	// but allow the toggle key to pass through to handleKey.
-	if m.debug.visible {
+	if m.debug.isVisible() {
 		if msg, ok := msg.(tea.KeyMsg); ok {
 			switch msg.String() {
 			case "j", "down":
@@ -173,11 +174,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.debug.scrollUp(1)
 				return m, nil
 			case "G":
-				m.debug.scroll = 0
+				m.debug.scrollToNewest()
 				return m, nil
 			case "g":
 				if m.lastKey == "g" {
-					m.debug.scroll = max(len(m.debug.entries)-1, 0)
+					m.debug.scrollToOldest()
 					m.lastKey = ""
 					return m, nil
 				}
@@ -738,7 +739,7 @@ func (m Model) View() tea.View {
 	filterBar, statusLine := m.footerViews()
 
 	full := lipgloss.JoinVertical(lipgloss.Left, main, filterBar, statusLine)
-	if m.debug.visible {
+	if m.debug.isVisible() {
 		full = renderOverlay(full, m.width, m.height, m.debug.view(m.width, m.height))
 	}
 	if m.errorOverlay.visible {
