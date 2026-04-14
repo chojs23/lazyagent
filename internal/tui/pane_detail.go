@@ -221,7 +221,10 @@ func (d *detailModel) renderToolDetail(ev *model.Event) string {
 			field("Additions", get("diff_additions")),
 			field("Deletions", get("diff_deletions")),
 		)
-		// Show per-file patches if available (OpenCode diff_files)
+		// New OpenCode events may omit `diff_files` entirely because the ingest
+		// plugin now keeps only summary counts for `session.diff`. Older stored
+		// rows can still include per-file patches, so we render them when present
+		// and otherwise fall back to the summary header above.
 		if filesRaw, ok := payload["diff_files"]; ok {
 			if files, ok := filesRaw.([]any); ok {
 				var patches []string

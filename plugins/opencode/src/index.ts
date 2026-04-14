@@ -213,23 +213,30 @@ function extractEventData(
       const diffs = (props.diff ?? []) as Array<Record<string, unknown>>;
       let additions = 0;
       let deletions = 0;
-      const files: Array<Record<string, unknown>> = [];
+
+      // `session.diff` is the single heaviest OpenCode event we forward.
+      // Upstream includes per-file unified patch text in `diff[].patch`, and
+      // those strings can grow to many megabytes for one event when a session
+      // touches many files or rewrites large files.
+      //
+      // Lazyagent only needs the aggregate counts for its event list and basic
+      // session timeline UX. Keeping the full per-file payload here causes two
+      // problems downstream:
+      //   1. the ingest path stores the oversized JSON blob verbatim in SQLite
+      //   2. the TUI has to load and re-parse that blob while browsing events
+      //
+      // We intentionally keep only the summary fields below. This is the most
+      // aggressive reduction mode: detail views lose per-file patch rendering,
+      // but lazyagent avoids the DB growth and event-loading slowdown caused by
+      // storing full patch text for every `session.diff` event.
       for (const d of diffs) {
         additions += (d.additions as number) || 0;
         deletions += (d.deletions as number) || 0;
-        files.push({
-          file: (d.file as string) || "",
-          patch: (d.patch as string) || "",
-          additions: (d.additions as number) || 0,
-          deletions: (d.deletions as number) || 0,
-          status: (d.status as string) || "modified",
-        });
       }
       return {
         diff_file_count: diffs.length,
         diff_additions: additions,
         diff_deletions: deletions,
-        diff_files: files,
       };
     }
 
