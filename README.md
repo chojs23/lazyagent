@@ -8,6 +8,13 @@ The TUI is built for day to day observability. You can see which session belongs
 
 It also helps you check whether each agent is doing the work that fits its role, so it is easier to spot when a run goes off track.
 
+## Features
+
+- **Multi-runtime support** -- Support Claude, Codex, and OpenCode sessions
+- **Subagent hierarchy** -- See which agents spawned which subagents, displayed as a visual tree.
+- **Event stream with filtering** -- Filter events by type (tool, user, session, system, code) or by agent. Full-text search across event payloads.
+- **Syntax and diff highlighting** -- Code blocks and diffs in event payloads are syntax-highlighted for readability.
+
 > lazyagent is still early in development, some breaking changes may happen.
 
 ## Installation
@@ -151,15 +158,17 @@ npm run build
 
 The shipping plugin is embedded into the Go binary, so keep the maintained source and embedded copy in sync when you change it.
 
+## TUI layout
+
+The interface is divided into five panes.
+
+1. **Projects** -- Lists all projects with their root sessions. Each session shows a runtime indicator: `[C]` for Claude, `[X]` for Codex, `[O]` for OpenCode. Active sessions display an animated spinner.
+2. **Session summary** -- Shows metadata for the selected session: runtime, project path, session ID, start time, last event time, and event/agent counts.
+3. **Agents / subagents** -- Displays the agent tree for the selected session. Active agents show a spinner.
+4. **Events** -- List of events for the selected session. Each row shows the event type, tool name, agent ID, and timestamp.
+5. **Event detail** -- Full inspection of the selected event. Shows status indicators, metadata fields, and the event payload.
+
 ## Keybindings
-
-Lazyagent has five panes:
-
-1. Projects and root sessions
-2. Session summary
-3. Agents and subagents
-4. Events
-5. Event detail
 
 Main keys:
 
@@ -170,7 +179,7 @@ Main keys:
 - `ctrl+u`, `ctrl+d` move by half a page
 - `enter`, `space` select the current item
 - `/` opens search
-- `t` cycles event type filters
+- `t`, `shift+t` cycles event type filters
 - `a` clears the current agent filter when the agent pane is focused
 - `d` deletes the selected project or session from the projects pane
 - `D` clears events for the selected session tree
@@ -197,6 +206,26 @@ lazyagent
 ```
 
 Project grouping is automatic. `lazyagent` first tries to match sessions by working directory such as `cwd` or `project_dir`, then falls back to transcript path information when needed. That means Claude, Codex, and OpenCode sessions from the same worktree are usually grouped under the same project in the TUI.
+
+### Filtering and search
+
+- **Type filter** -- Press `t` to cycle through: All, User, Code, System, Tool, Session.
+- **Agent filter** -- Select an agent in the agents pane to show only that agent's events. Press `a` to clear the filter and show all agents again.
+- **Text search** -- Press `/` and type a pattern to search event payloads.
+
+### Event types
+
+`lazyagent` tracks the following event types depending on the runtime.
+
+| Type    | Subtypes                                                           | Description                                                                                                                                      |
+| ------- | ------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------ |
+| User    | `UserPromptSubmit`                                                 | User sent a prompt                                                                                                                               |
+| Code    | --                                                                 | Convenience filter. Shows tool events where tool name is `Edit`, `Write`, `apply_patch`, or `NotebookEdit`, and events with subtype `FileEdited` |
+| System  | `Stop`, `SubagentStop`, `Notification`, `SessionStatus` and others | Agent stop, status, and notification events                                                                                                      |
+| Tool    | `PreToolUse`, `PostToolUse`, `PostToolUseFailure`                  | Tool execution start, success, or failure                                                                                                        |
+| Session | `SessionStart`, `SessionEnd`, `SessionUpdated`, `SessionDiff`      | Session lifecycle.                                                                                                                               |
+
+When a `PreToolUse` or `PostToolUse` event involves the `Agent` tool, `lazyagent` automatically creates a subagent entry and links subsequent events to it.
 
 ### Commands
 
