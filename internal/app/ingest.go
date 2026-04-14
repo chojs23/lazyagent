@@ -559,6 +559,38 @@ func IngestCodexEvent(ctx context.Context, st *store.Store, payload map[string]a
 
 		result.EventID = eventID
 		result.ProjectID = projectID
+
+		// Codex does not fire hooks for apply_patch events. Scan the
+		// transcript file and ingest any patch events not yet stored.
+		if parsed.TranscriptPath != "" {
+			patchEvents, readErr := codex.ReadPatchEvents(parsed.SessionID, parsed.TranscriptPath)
+			if readErr == nil {
+				for _, pe := range patchEvents {
+					if pe.ToolUseID == "" {
+						continue
+					}
+					exists, _ := q.EventExistsByToolUseID(ctx, parsed.SessionID, pe.ToolUseID)
+					if exists {
+						continue
+					}
+					pRaw, encErr := json.Marshal(pe.Raw)
+					if encErr != nil {
+						continue
+					}
+					q.InsertEvent(ctx, model.Event{
+						AgentID:   rootAgentID,
+						SessionID: parsed.SessionID,
+						Type:      pe.Type,
+						Subtype:   pe.Subtype,
+						ToolName:  pe.ToolName,
+						ToolUseID: pe.ToolUseID,
+						Timestamp: pe.Timestamp,
+						Payload:   string(pRaw),
+					})
+				}
+			}
+		}
+
 		return nil
 	})
 
