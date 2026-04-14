@@ -249,8 +249,24 @@ func eventBrief(ev model.Event) string {
 			return truncate(firstLine(getStr(input, "command")), 80)
 		case "Read":
 			return pick(getStr(input, "file_path"), getStr(input, "filePath"))
-		case "Edit", "Write":
-			return pick(getStr(input, "file_path"), getStr(input, "filePath"))
+		case "Edit":
+			filePath := pick(getStr(input, "file_path"), getStr(input, "filePath"))
+			stats := editDiffStats(getStr(input, "old_string"), getStr(input, "new_string"))
+			if stats != "" {
+				return truncate(filePath+" "+stats, 80)
+			}
+			return filePath
+		case "Write":
+			filePath := pick(getStr(input, "file_path"), getStr(input, "filePath"))
+			if content := getStr(input, "content"); content != "" {
+				n := strings.Count(content, "\n") + 1
+				return truncate(fmt.Sprintf("%s (+%d)", filePath, n), 80)
+			}
+			return filePath
+		case "apply_patch":
+			patch := pick(getStr(input, "input"), getStr(input, "patch"))
+			stats := patchDiffStats(patch)
+			return truncate(stats, 80)
 		case "Grep":
 			s := getStr(input, "pattern")
 			if path := getStr(input, "path"); path != "" {
@@ -286,8 +302,24 @@ func eventBrief(ev model.Event) string {
 			return truncate(firstLine(out), 80)
 		case "Read":
 			return truncate(pick(getStr(input, "file_path"), getStr(input, "filePath"), ocOutput), 80)
-		case "Edit", "Write":
-			return truncate(pick(getStr(input, "file_path"), getStr(input, "filePath"), ocOutput), 80)
+		case "Edit":
+			filePath := pick(getStr(input, "file_path"), getStr(input, "filePath"), ocOutput)
+			stats := editDiffStats(getStr(input, "old_string"), getStr(input, "new_string"))
+			if stats != "" {
+				return truncate(filePath+" "+stats, 80)
+			}
+			return truncate(filePath, 80)
+		case "Write":
+			filePath := pick(getStr(input, "file_path"), getStr(input, "filePath"), ocOutput)
+			if content := getStr(input, "content"); content != "" {
+				n := strings.Count(content, "\n") + 1
+				return truncate(fmt.Sprintf("%s (+%d)", filePath, n), 80)
+			}
+			return truncate(filePath, 80)
+		case "apply_patch":
+			patch := pick(getStr(input, "input"), getStr(input, "patch"))
+			stats := patchDiffStats(patch)
+			return truncate(stats, 80)
 		default:
 			resp := getStr(p, "tool_response")
 			if resp == "" {
@@ -400,4 +432,42 @@ func pick(vals ...string) string {
 		}
 	}
 	return ""
+}
+
+// editDiffStats computes diff stats from old_string/new_string using Myers diff.
+func editDiffStats(oldStr, newStr string) string {
+	if oldStr == "" && newStr == "" {
+		return ""
+	}
+	oldLines := strings.Split(oldStr, "\n")
+	newLines := strings.Split(newStr, "\n")
+	script := ComputeDiff(oldLines, newLines)
+	s := Stats(script)
+	if s.Additions == 0 && s.Deletions == 0 {
+		return ""
+	}
+	return fmt.Sprintf("(+%d -%d)", s.Additions, s.Deletions)
+}
+
+// patchDiffStats counts +/- lines in a unified patch or Codex apply_patch format.
+func patchDiffStats(patch string) string {
+	if patch == "" {
+		return ""
+	}
+	var adds, dels int
+	for _, line := range strings.Split(patch, "\n") {
+		if len(line) == 0 {
+			continue
+		}
+		switch {
+		case strings.HasPrefix(line, "+"):
+			adds++
+		case strings.HasPrefix(line, "-"):
+			dels++
+		}
+	}
+	if adds == 0 && dels == 0 {
+		return "patch"
+	}
+	return fmt.Sprintf("(+%d -%d)", adds, dels)
 }
