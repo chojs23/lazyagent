@@ -182,6 +182,30 @@ func TestParseRawEvent_MessageUpdated(t *testing.T) {
 	}
 }
 
+func TestParseRawEvent_MessageRemoved(t *testing.T) {
+	raw := map[string]any{
+		"event":        "message.removed",
+		"session_id":   "sess-1",
+		"message_role": "assistant",
+		"message_id":   "msg-removed",
+		"message_data": map[string]any{"id": "msg-removed", "role": "assistant"},
+	}
+	p := ParseRawEvent(raw)
+
+	if p.Type != "message" {
+		t.Fatalf("Type = %q, want message", p.Type)
+	}
+	if p.Subtype != "MessageRemoved" {
+		t.Fatalf("Subtype = %q, want MessageRemoved", p.Subtype)
+	}
+	if p.Metadata["message_id"] != "msg-removed" {
+		t.Fatalf("message_id = %v", p.Metadata["message_id"])
+	}
+	if _, ok := p.Metadata["message_data"].(map[string]any); !ok {
+		t.Fatalf("message_data = %#v, want map", p.Metadata["message_data"])
+	}
+}
+
 func TestParseRawEvent_PartUpdatedText(t *testing.T) {
 	raw := map[string]any{
 		"event":      "message.part.updated",
@@ -229,6 +253,62 @@ func TestParseRawEvent_PartUpdatedTool(t *testing.T) {
 	}
 	if p.Metadata["tool_status"] != "completed" {
 		t.Fatalf("tool_status = %v", p.Metadata["tool_status"])
+	}
+}
+
+func TestParseRawEvent_PartUpdatedUnknownPartPreservesRawData(t *testing.T) {
+	raw := map[string]any{
+		"event":      "message.part.updated",
+		"session_id": "sess-1",
+		"part_type":  "attachment",
+		"part_id":    "part-raw",
+		"message_id": "msg-1",
+		"part_data": map[string]any{
+			"type":  "attachment",
+			"url":   "file:///tmp/example.txt",
+			"mime":  "text/plain",
+			"label": "example.txt",
+		},
+	}
+	p := ParseRawEvent(raw)
+
+	if p.Subtype != "PartUpdated" {
+		t.Fatalf("Subtype = %q, want PartUpdated", p.Subtype)
+	}
+	partData, ok := p.Metadata["part_data"].(map[string]any)
+	if !ok {
+		t.Fatalf("part_data = %#v, want map", p.Metadata["part_data"])
+	}
+	if partData["url"] != "file:///tmp/example.txt" {
+		t.Fatalf("part_data.url = %v, want file path", partData["url"])
+	}
+}
+
+func TestParseRawEvent_PartRemovedPreservesRawData(t *testing.T) {
+	raw := map[string]any{
+		"event":      "message.part.removed",
+		"session_id": "sess-1",
+		"part_type":  "text",
+		"part_id":    "part-removed",
+		"message_id": "msg-1",
+		"part_data": map[string]any{
+			"type": "text",
+			"text": "removed content",
+		},
+	}
+	p := ParseRawEvent(raw)
+
+	if p.Type != "message" {
+		t.Fatalf("Type = %q, want message", p.Type)
+	}
+	if p.Subtype != "PartRemoved" {
+		t.Fatalf("Subtype = %q, want PartRemoved", p.Subtype)
+	}
+	if p.Metadata["part_id"] != "part-removed" {
+		t.Fatalf("part_id = %v, want part-removed", p.Metadata["part_id"])
+	}
+	if _, ok := p.Metadata["part_data"].(map[string]any); !ok {
+		t.Fatalf("part_data = %#v, want map", p.Metadata["part_data"])
 	}
 }
 

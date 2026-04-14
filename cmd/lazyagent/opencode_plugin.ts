@@ -1,21 +1,49 @@
 import type { Plugin } from "@opencode-ai/plugin";
-import { execFileSync } from "child_process";
+import { spawn } from "child_process";
 
 const LAZYAGENT_BIN = process.env.LAZYAGENT_BIN || "lazyagent";
 
 function ingest(payload: Record<string, unknown>): void {
   try {
-    execFileSync(
+    const child = spawn(
       LAZYAGENT_BIN,
       ["ingest", "--runtime", "opencode"],
       {
-        input: JSON.stringify(payload),
         timeout: 5000,
-        stdio: ["pipe", "pipe", "pipe"],
+        stdio: ["pipe", "ignore", "pipe"],
+        windowsHide: true,
       }
     );
+
+    let stderr = "";
+    child.stderr?.on("data", (chunk) => {
+      if (stderr.length >= 4096) {
+        return;
+      }
+      stderr += String(chunk).slice(0, 4096 - stderr.length);
+    });
+
+    child.on("error", (err: any) => {
+      console.error("[lazyagent] ingest launch error:", err.message);
+    });
+
+    child.on("close", (code, signal) => {
+      if (code === 0) {
+        return;
+      }
+      const detail = stderr.trim();
+      const reason = signal
+        ? `signal ${signal}`
+        : `exit code ${code ?? "unknown"}`;
+      console.error(
+        "[lazyagent] ingest failed:",
+        detail ? `${reason}: ${detail}` : reason
+      );
+    });
+
+    child.stdin?.end(JSON.stringify(payload));
   } catch (err: any) {
-    console.error("[lazyagent] ingest error:", err.message);
+    console.error("[lazyagent] ingest setup error:", err.message);
   }
 }
 
@@ -25,7 +53,6 @@ const FORWARDED_EVENTS = new Set([
   "session.created",
   "session.updated",
   "session.deleted",
-  "session.idle",
   "session.status",
   "session.diff",
   "session.error",
@@ -36,8 +63,100 @@ const FORWARDED_EVENTS = new Set([
   "command.executed",
   "file.edited",
   "message.updated",
+  "message.removed",
   "message.part.updated",
+  "message.part.removed",
 ]);
+
+function truncateString(value: unknown, maxLen = 10000): string {
+  return typeof value === "string" ? value.slice(0, maxLen) : "";
+}
+
+function sanitizeValue(value: unknown, depth = 0): unknown {
+  if (typeof value === "string") {
+    return value.slice(0, 10000);
+  }
+  if (
+    typeof value === "number" ||
+    typeof value === "boolean" ||
+    value === null
+  ) {
+    return value;
+  }
+  if (Array.isArray(value)) {
+    if (depth >= 4) {
+      return value.map((item) =>
+        typeof item === "string" ? item.slice(0, 10000) : item
+      );
+    }
+    return value.map((item) => sanitizeValue(item, depth + 1));
+  }
+  if (typeof value === "object" && value) {
+    if (depth >= 4) {
+      return "[object]";
+    }
+    const result: Record<string, unknown> = {};
+    for (const [key, entry] of Object.entries(value as Record<string, unknown>)) {
+      result[key] = sanitizeValue(entry, depth + 1);
+    }
+    return result;
+  }
+  if (value === undefined) {
+    return null;
+  }
+  return String(value);
+}
+
+function extractPartData(
+  part: Record<string, unknown>,
+  preserveRaw = false
+): Record<string, unknown> {
+  const partType = (part.type as string) || "";
+  const result: Record<string, unknown> = {
+    part_type: partType,
+    part_id: (part.id as string) || "",
+    message_id: (part.messageID as string) || "",
+  };
+
+  switch (partType) {
+    case "text":
+    case "reasoning":
+      result.text = truncateString(part.text);
+      break;
+    case "tool": {
+      result.tool_name = (part.tool as string) || "";
+      result.call_id = (part.callID as string) || "";
+      const state = (part.state ?? {}) as Record<string, unknown>;
+      result.tool_status = (state.status as string) || "";
+      result.tool_title = (state.title as string) || "";
+      if (state.status === "error") {
+        result.tool_error = (state.error as string) || "";
+      }
+      break;
+    }
+    case "step-finish": {
+      result.finish_reason = (part.reason as string) || "";
+      result.cost = part.cost ?? 0;
+      const tokens = (part.tokens ?? {}) as Record<string, unknown>;
+      const cache = (tokens.cache ?? {}) as Record<string, unknown>;
+      result.tokens_input = tokens.input ?? 0;
+      result.tokens_output = tokens.output ?? 0;
+      result.tokens_reasoning = tokens.reasoning ?? 0;
+      result.tokens_cache_read = cache.read ?? 0;
+      result.tokens_cache_write = cache.write ?? 0;
+      break;
+    }
+    default:
+      preserveRaw = true;
+      break;
+  }
+
+  if (preserveRaw) {
+    result.part_data = sanitizeValue(part);
+  }
+
+  return result;
+}
 
 function extractSessionID(event: Record<string, unknown>): string {
   const props = (event.properties ?? {}) as Record<string, unknown>;
@@ -184,51 +303,21 @@ function extractEventData(
       return result;
     }
 
+    case "message.removed":
+      return {
+        message_role: (info.role as string) || "",
+        message_id: (info.id as string) || "",
+        message_data: sanitizeValue(info),
+      };
+
     case "message.part.updated": {
       const part = (props.part ?? {}) as Record<string, unknown>;
-      const partType = (part.type as string) || "";
-      const result: Record<string, unknown> = {
-        part_type: partType,
-        part_id: (part.id as string) || "",
-        message_id: (part.messageID as string) || "",
-      };
-      switch (partType) {
-        case "text":
-          // Truncate text to 10KB to avoid bloating the payload
-          result.text = typeof part.text === "string"
-            ? (part.text as string).slice(0, 10000)
-            : "";
-          break;
-        case "reasoning":
-          result.text = typeof part.text === "string"
-            ? (part.text as string).slice(0, 10000)
-            : "";
-          break;
-        case "tool": {
-          result.tool_name = (part.tool as string) || "";
-          result.call_id = (part.callID as string) || "";
-          const state = (part.state ?? {}) as Record<string, unknown>;
-          result.tool_status = (state.status as string) || "";
-          result.tool_title = (state.title as string) || "";
-          if (state.status === "error") {
-            result.tool_error = (state.error as string) || "";
-          }
-          break;
-        }
-        case "step-finish": {
-          result.finish_reason = (part.reason as string) || "";
-          result.cost = part.cost ?? 0;
-          const tokens = (part.tokens ?? {}) as Record<string, unknown>;
-          const cache = (tokens.cache ?? {}) as Record<string, unknown>;
-          result.tokens_input = tokens.input ?? 0;
-          result.tokens_output = tokens.output ?? 0;
-          result.tokens_reasoning = tokens.reasoning ?? 0;
-          result.tokens_cache_read = cache.read ?? 0;
-          result.tokens_cache_write = cache.write ?? 0;
-          break;
-        }
-      }
-      return result;
+      return extractPartData(part);
+    }
+
+    case "message.part.removed": {
+      const part = (props.part ?? {}) as Record<string, unknown>;
+      return extractPartData(part, true);
     }
 
     default:

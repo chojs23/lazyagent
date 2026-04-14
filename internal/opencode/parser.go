@@ -92,9 +92,15 @@ func ParseRawEvent(raw map[string]any) model.ParsedEvent {
 	case "message.updated":
 		p.Type = "message"
 		p.Subtype = "MessageUpdated"
+	case "message.removed":
+		p.Type = "message"
+		p.Subtype = "MessageRemoved"
 	case "message.part.updated":
 		p.Type = "message"
 		p.Subtype = "PartUpdated"
+	case "message.part.removed":
+		p.Type = "message"
+		p.Subtype = "PartRemoved"
 	default:
 		p.Type = "system"
 		p.Subtype = event
@@ -184,13 +190,20 @@ func ParseRawEvent(raw map[string]any) model.ParsedEvent {
 				p.Metadata[k] = v
 			}
 		}
-	case "message.part.updated":
+	case "message.removed":
+		for _, k := range []string{"message_role", "message_id", "message_data"} {
+			if v, ok := raw[k]; ok {
+				p.Metadata[k] = v
+			}
+		}
+	case "message.part.updated", "message.part.removed":
 		for _, k := range []string{
 			"part_type", "part_id", "message_id",
 			"text", "tool_name", "call_id", "tool_status", "tool_title", "tool_error",
 			"finish_reason", "cost",
 			"tokens_input", "tokens_output", "tokens_reasoning",
 			"tokens_cache_read", "tokens_cache_write",
+			"part_data",
 		} {
 			if v, ok := raw[k]; ok {
 				p.Metadata[k] = v
