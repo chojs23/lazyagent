@@ -326,6 +326,22 @@ func (q *Queries) GetSessionByID(ctx context.Context, id string) (*model.Session
 	return scanSession(row)
 }
 
+func (q *Queries) ListSessionsByRuntime(ctx context.Context, runtime string) ([]model.Session, error) {
+	rows, err := q.db.QueryContext(ctx, `
+		SELECT s.id, COALESCE(s.parent_session_id,''), s.project_id, COALESCE(p.slug,''), COALESCE(p.name,''),
+			COALESCE(s.slug,''), COALESCE(s.status,''), COALESCE(s.runtime,'claude'), s.started_at, COALESCE(s.stopped_at,0),
+			COALESCE(s.transcript_path,''), COALESCE(s.metadata,''),
+			s.event_count, s.agent_count, COALESCE(s.last_activity,0), s.created_at, s.updated_at
+		FROM sessions s LEFT JOIN projects p ON p.id = s.project_id
+		WHERE s.runtime = ? AND s.transcript_path != ''
+		ORDER BY s.started_at DESC`, runtime)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	return scanSessions(rows)
+}
+
 func (q *Queries) ListSessionsForProject(ctx context.Context, projectID int64) ([]model.Session, error) {
 	rows, err := q.db.QueryContext(ctx, `
 		SELECT s.id, COALESCE(s.parent_session_id,''), s.project_id, COALESCE(p.slug,''), COALESCE(p.name,''),
@@ -856,6 +872,14 @@ func (q *Queries) GetEventByID(ctx context.Context, id int64) (*model.Event, err
 		return nil, err
 	}
 	return &e, nil
+}
+
+func (q *Queries) EventExistsByToolUseID(ctx context.Context, sessionID, toolUseID string) (bool, error) {
+	var count int
+	err := q.db.QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM events WHERE session_id = ? AND tool_use_id = ?`,
+		sessionID, toolUseID).Scan(&count)
+	return count > 0, err
 }
 
 func (q *Queries) GetEventThread(ctx context.Context, eventID int64) ([]model.Event, error) {
