@@ -444,6 +444,15 @@ func eventBrief(ev model.Event) string {
 	}
 }
 
+// splitLines splits a string into lines, returning nil for empty input
+// instead of []string{""} which strings.Split produces.
+func splitLines(s string) []string {
+	if s == "" {
+		return nil
+	}
+	return strings.Split(s, "\n")
+}
+
 // pick returns the first non-empty string.
 func pick(vals ...string) string {
 	for _, v := range vals {
@@ -459,8 +468,8 @@ func editDiffStats(oldStr, newStr string) string {
 	if oldStr == "" && newStr == "" {
 		return ""
 	}
-	oldLines := strings.Split(oldStr, "\n")
-	newLines := strings.Split(newStr, "\n")
+	oldLines := splitLines(oldStr)
+	newLines := splitLines(newStr)
 	script := ComputeDiff(oldLines, newLines)
 	s := Stats(script)
 	if s.Additions == 0 && s.Deletions == 0 {

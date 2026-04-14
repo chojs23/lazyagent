@@ -432,8 +432,8 @@ func (d *detailModel) renderDiffBlock(label, filePath, oldStr, newStr string, ex
 	sepStyle := lipgloss.NewStyle().Foreground(colorMagenta)
 
 	lang := langFromPath(filePath)
-	oldLines := strings.Split(oldStr, "\n")
-	newLines := strings.Split(newStr, "\n")
+	oldLines := splitLines(oldStr)
+	newLines := splitLines(newStr)
 	script := ComputeDiff(oldLines, newLines)
 	stats := Stats(script)
 
