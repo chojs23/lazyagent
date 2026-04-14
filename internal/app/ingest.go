@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 
@@ -737,6 +738,9 @@ func createProjectWithUniqueSlug(ctx context.Context, q *store.Queries, base, di
 
 func extractProjectDir(transcriptPath string) string {
 	cleaned := strings.TrimRight(transcriptPath, "/")
+	if info, err := os.Stat(cleaned); err == nil && info.IsDir() {
+		return cleaned
+	}
 	if ext := filepath.Ext(cleaned); ext != "" {
 		return filepath.Dir(cleaned)
 	}

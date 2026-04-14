@@ -1438,6 +1438,17 @@ func TestExtractProjectDir(t *testing.T) {
 	}
 }
 
+func TestExtractProjectDirKeepsExistingDottedDirectory(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "foo.bar")
+	if err := os.Mkdir(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	if got := extractProjectDir(dir); got != dir {
+		t.Fatalf("got %q, want %q", got, dir)
+	}
+}
+
 func TestCreateProjectWithUniqueSlugFailsWhenSuffixesAreExhausted(t *testing.T) {
 	st := testStore(t)
 	ctx := context.Background()
