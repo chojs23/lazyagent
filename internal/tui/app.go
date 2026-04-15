@@ -155,6 +155,18 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.agents.tick()
 		m.projects.tick()
 		return m, spinnerTickCmd()
+
+	case tea.MouseClickMsg:
+		if m.debug.isVisible() || m.errorOverlay.visible {
+			return m, nil
+		}
+		return m.handleMouseClick(msg)
+
+	case tea.MouseWheelMsg:
+		if m.debug.isVisible() || m.errorOverlay.visible {
+			return m, nil
+		}
+		return m.handleMouseWheel(msg)
 	}
 
 	// While the search input is focused, route remaining messages
@@ -760,6 +772,7 @@ func (m Model) View() tea.View {
 
 	v := tea.NewView(full)
 	v.AltScreen = true
+	v.MouseMode = tea.MouseModeCellMotion
 	return v
 }
 

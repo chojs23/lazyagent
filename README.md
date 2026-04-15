@@ -187,6 +187,7 @@ Main keys:
 - `r` refreshes data
 - `?` toggles help
 - `q` quits
+- Hold `shift` while dragging to select and copy text
 
 When a non panic internal app error happens, the TUI shows a small toast in the
 bottom right for about 5 seconds while also writing the error to
