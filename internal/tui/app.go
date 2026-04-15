@@ -243,7 +243,7 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.focus = focusDetail
 		m.syncLayout()
 		return m, nil
-	case msg.Key().Code == tea.KeyEscape && m.filter.searchQuery != "":
+	case msg.Key().Code == tea.KeyEscape && m.filter.searchQuery != "" && m.focus != focusDetail:
 		m.filter.clearSearch()
 		m.status = "Search: off"
 		return m, m.loadDataCmd()
