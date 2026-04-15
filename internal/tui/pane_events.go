@@ -168,7 +168,7 @@ func (e *eventsModel) view(width, height int, focused bool, agentMap map[string]
 	for i := e.scroll; i < end; i++ {
 		ev := e.events[i]
 		absIndex := e.loadedOffset + i
-		line := e.renderEventLine(ev, absIndex, i == e.cursor && focused, agentMap, width-4, totalDigits)
+		line := e.renderEventLine(ev, absIndex, i == e.cursor, focused, agentMap, width-4, totalDigits)
 		lines = append(lines, line)
 	}
 
@@ -181,7 +181,7 @@ func (e *eventsModel) view(width, height int, focused bool, agentMap map[string]
 	return renderPane(width, height, focused, headerLine, lines)
 }
 
-func (e *eventsModel) renderEventLine(ev model.Event, index int, selected bool, agentMap map[string]agentInfo, maxW int, totalDigits int) string {
+func (e *eventsModel) renderEventLine(ev model.Event, index int, atCursor bool, focused bool, agentMap map[string]agentInfo, maxW int, totalDigits int) string {
 	numStr := fmt.Sprintf("%*d", totalDigits, index+1)
 	subtype := truncate(orDefault(ev.Subtype, ev.Type), 20)
 
@@ -193,7 +193,7 @@ func (e *eventsModel) renderEventLine(ev model.Event, index int, selected bool, 
 	brief := eventBrief(ev)
 
 	// order: num | agent | subtype | tool | brief
-	if selected {
+	if atCursor {
 		var parts []string
 		parts = append(parts, numStr)
 		if agentLabel != "" {
@@ -206,7 +206,11 @@ func (e *eventsModel) renderEventLine(ev model.Event, index int, selected bool, 
 		if brief != "" {
 			parts = append(parts, brief)
 		}
-		return cursorStyle.Render("  " + strings.Join(parts, "  "))
+		style := selectedStyle
+		if focused {
+			style = cursorStyle
+		}
+		return style.Render("  " + strings.Join(parts, "  "))
 	}
 
 	stColor := subtypeColor(ev.Subtype)

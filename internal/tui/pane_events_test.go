@@ -291,7 +291,7 @@ func TestRenderEventLine_AbsoluteNumbering(t *testing.T) {
 	// The view renders lines with absolute index. Verify by calling
 	// renderEventLine directly with an absolute index.
 	ev := e.events[0]
-	line := e.renderEventLine(ev, 9900, false, nil, 80, 5)
+	line := e.renderEventLine(ev, 9900, false, false, nil, 80, 5)
 
 	// The absolute number should be 9901 (9900 + 1 since renderEventLine does index+1)
 	if !contains(line, "9901") {
@@ -304,7 +304,7 @@ func TestRenderEventLine_AbsoluteNumbering_LastEvent(t *testing.T) {
 	e.setEvents(makeEvents(100), 10000, 9900)
 
 	ev := e.events[99]
-	line := e.renderEventLine(ev, 9999, false, nil, 80, 5)
+	line := e.renderEventLine(ev, 9999, false, false, nil, 80, 5)
 
 	if !contains(line, "10000") {
 		t.Fatalf("expected absolute number 10000 in line, got: %s", line)
