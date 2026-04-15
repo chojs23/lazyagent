@@ -12,6 +12,9 @@
         "aarch64-darwin"
       ];
       forAllSystems = nixpkgs.lib.genAttrs systems;
+      releaseVersion = builtins.replaceStrings ["\n"] [""] (builtins.readFile ./VERSION);
+      snapshotDate = self.lastModifiedDate or "19700101";
+      commitLdflag = nixpkgs.lib.optional (self ? rev) "-X github.com/chojs23/lazyagent/internal/version.Commit=${self.rev}";
     in
     {
       packages = forAllSystems (system:
@@ -19,10 +22,16 @@
           pkgs = import nixpkgs { inherit system; };
           lazyagent = pkgs.buildGoModule {
             pname = "lazyagent";
-            version = "unstable-${self.lastModifiedDate or "19700101"}";
+            version = releaseVersion;
 
             src = self;
             subPackages = [ "cmd/lazyagent" ];
+            ldflags = [
+              "-s"
+              "-w"
+              "-X github.com/chojs23/lazyagent/internal/version.Version=${releaseVersion}"
+              "-X github.com/chojs23/lazyagent/internal/version.BuildDate=${snapshotDate}"
+            ] ++ commitLdflag;
 
             # Keep this hash in sync with the current Go module graph.
             # If this repo ever checks in a fully populated `vendor/`

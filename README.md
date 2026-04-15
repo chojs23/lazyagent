@@ -36,6 +36,8 @@ go install github.com/chojs23/lazyagent/cmd/lazyagent@latest
 
 ### Nix flake
 
+These commands build the repository through its flake. The binary version comes from the repo `VERSION` file, while the exact source you install depends on the ref you choose.
+
 Run directly:
 
 ```bash
@@ -47,6 +49,15 @@ Install into your profile:
 ```bash
 nix profile install github:chojs23/lazyagent
 ```
+
+Pin a specific release tag if you want that exact release through Nix:
+
+```bash
+nix run github:chojs23/lazyagent/v0.2.0
+nix profile install github:chojs23/lazyagent/v0.2.0
+```
+
+The default `github:chojs23/lazyagent` form follows the default branch, so use a tag ref when you want a fixed release.
 
 ### Release install script
 
@@ -60,7 +71,7 @@ Install a specific release into a custom directory:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/chojs23/lazyagent/main/scripts/install.sh | \
-  sh -s -- --version v0.1.0 --bin-dir /usr/local/bin
+  sh -s -- --version v0.2.0 --bin-dir /usr/local/bin
 ```
 
 Installer options:
