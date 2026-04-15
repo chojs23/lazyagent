@@ -39,6 +39,7 @@ func (e *eventsModel) setEvents(events []model.Event, rawCount int, offset int) 
 	if e.cursor >= len(events) {
 		e.cursor = max(len(events)-1, 0)
 	}
+	e.clampScroll()
 }
 
 func (e *eventsModel) prependEvents(events []model.Event, newOffset int) {
@@ -56,37 +57,68 @@ func (e *eventsModel) needsOlder() bool {
 	return e.loadedOffset > 0 && e.cursor < eventsPageSize/2
 }
 
+// clampScroll enforces vim-like scrolloff=3: the cursor stays at least 3
+// lines from the top and bottom edges of the viewport.  At the very start
+// or end of the list the margin is naturally relaxed by the final clamp.
+//
+// This method must be called from Update()-context methods (cursor moves,
+// setEvents, layout changes) so the result persists.  bubbletea's View()
+// runs on a value copy, so scroll mutations there are silently lost.
+func (e *eventsModel) clampScroll() {
+	contentHeight := max(e.height-3, 1)
+	scrolloff := min(3, (contentHeight-1)/2)
+
+	// cursor too close to bottom edge → scroll down
+	if e.cursor > e.scroll+contentHeight-1-scrolloff {
+		e.scroll = e.cursor - contentHeight + 1 + scrolloff
+	}
+	// cursor too close to top edge → scroll up
+	if e.cursor < e.scroll+scrolloff {
+		e.scroll = e.cursor - scrolloff
+	}
+
+	e.scroll = max(e.scroll, 0)
+	maxScroll := max(len(e.events)-contentHeight, 0)
+	e.scroll = min(e.scroll, maxScroll)
+}
+
 func (e *eventsModel) moveUp() {
 	if e.cursor > 0 {
 		e.cursor--
 		e.autoFollow = false
 	}
+	e.clampScroll()
 }
 
 func (e *eventsModel) moveDown() {
 	if e.cursor < len(e.events)-1 {
 		e.cursor++
 	}
+	e.clampScroll()
 }
 
 func (e *eventsModel) halfPageUp(viewH int) {
 	e.cursor = max(e.cursor-viewH/2, 0)
 	e.autoFollow = false
+	e.clampScroll()
 }
 
 func (e *eventsModel) halfPageDown(viewH int) {
 	e.cursor = min(e.cursor+viewH/2, max(len(e.events)-1, 0))
+	e.clampScroll()
 }
 
 func (e *eventsModel) goTop() {
 	e.cursor = 0
 	e.autoFollow = false
+	e.clampScroll()
 }
 
 func (e *eventsModel) goBottom() {
 	if len(e.events) > 0 {
 		e.cursor = len(e.events) - 1
 	}
+	e.clampScroll()
 }
 
 func (e *eventsModel) toggleAutoFollow() {
@@ -94,6 +126,7 @@ func (e *eventsModel) toggleAutoFollow() {
 	if e.autoFollow && len(e.events) > 0 {
 		e.cursor = len(e.events) - 1
 	}
+	e.clampScroll()
 }
 
 func (e *eventsModel) selectedEvent() *model.Event {
@@ -119,21 +152,8 @@ func (e *eventsModel) view(width, height int, focused bool, agentMap map[string]
 
 	contentHeight := max(height-3, 1)
 
-	// ensure cursor is visible with 3-item lookahead below
-	scrollPad := 3
-	if e.cursor+scrollPad >= e.scroll+contentHeight {
-		e.scroll = e.cursor + scrollPad - contentHeight + 1
-	}
-	if e.cursor < e.scroll+scrollPad && e.scroll > 0 {
-		e.scroll = max(e.cursor-scrollPad, 0)
-	}
-	if e.cursor < e.scroll {
-		e.scroll = e.cursor
-	}
-	// clamp scroll
-	maxScroll := max(len(e.events)-contentHeight, 0)
-	e.scroll = min(e.scroll, maxScroll)
-
+	// scroll is computed by clampScroll() in Update()-context methods.
+	// Just read it here.
 	var lines []string
 	end := min(e.scroll+contentHeight, len(e.events))
 	totalDigits := len(fmt.Sprintf("%d", e.loadedOffset+len(e.events)))

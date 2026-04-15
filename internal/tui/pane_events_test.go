@@ -323,3 +323,143 @@ func searchString(s, sub string) bool {
 	}
 	return false
 }
+
+// setHeight sets the pane height so clampScroll() computes correctly.
+func setHeight(e *eventsModel, contentHeight int) {
+	e.height = contentHeight + 3 // view subtracts 3 for header/border
+}
+
+func TestScrolloff_DownFromTop(t *testing.T) {
+	em := newEvents()
+	e := &em
+	e.autoFollow = false
+	setHeight(e, 10)
+	e.setEvents(makeEvents(30), 30, 0)
+	e.cursor = 0
+	e.scroll = 0
+
+	// Move down until scrolling starts (scrolloff=3, so at cursor=7)
+	for range 7 {
+		e.moveDown()
+	}
+	if e.cursor != 7 {
+		t.Fatalf("cursor: got %d, want 7", e.cursor)
+	}
+	// cursor at viewport position 6 (3 from bottom of 10-line viewport)
+	if pos := e.cursor - e.scroll; pos != 10-1-3 {
+		t.Fatalf("cursor viewport position: got %d, want %d (3 from bottom)", pos, 10-1-3)
+	}
+}
+
+func TestScrolloff_UpFromBottom(t *testing.T) {
+	em := newEvents()
+	e := &em
+	e.autoFollow = false
+	setHeight(e, 10)
+	e.setEvents(makeEvents(30), 30, 0)
+
+	// Go to bottom first so scroll is properly set
+	e.goBottom()
+
+	// Move up — cursor should traverse freely then lock at position 3
+	for range 7 {
+		e.moveUp()
+	}
+	if e.cursor != 22 {
+		t.Fatalf("cursor: got %d, want 22", e.cursor)
+	}
+	if pos := e.cursor - e.scroll; pos != 3 {
+		t.Fatalf("cursor viewport position: got %d, want 3 (3 from top)", pos)
+	}
+}
+
+func TestScrolloff_NoPaddingAtListEdges(t *testing.T) {
+	em := newEvents()
+	e := &em
+	e.autoFollow = false
+	setHeight(e, 10)
+	e.setEvents(makeEvents(30), 30, 0)
+	e.cursor = 0
+	e.scroll = 0
+	e.clampScroll()
+
+	// At very top, scroll=0, cursor=0 — no top padding forced
+	if e.scroll != 0 {
+		t.Fatalf("scroll at top: got %d, want 0", e.scroll)
+	}
+
+	// At very bottom — scroll at maxScroll, cursor on last line
+	e.goBottom()
+	if e.scroll != 20 {
+		t.Fatalf("scroll at bottom: got %d, want 20", e.scroll)
+	}
+}
+
+func TestScrolloff_NewEventsWhileScrollingUp(t *testing.T) {
+	em := newEvents()
+	e := &em
+	setHeight(e, 20)
+	e.setEvents(makeEvents(100), 100, 0)
+	e.goBottom() // cursor=99, scroll=80
+	e.autoFollow = false
+
+	// User scrolls up a few times
+	for range 3 {
+		e.moveUp()
+	}
+	scrollBefore := e.scroll
+
+	// New events arrive — maxScroll increases but cursor stays
+	e.setEvents(makeEvents(110), 110, 0)
+
+	// Scroll must NOT increase (viewport must not jump down)
+	if e.scroll > scrollBefore {
+		t.Fatalf("scroll jumped down after new events: was %d, now %d",
+			scrollBefore, e.scroll)
+	}
+}
+
+func TestScrolloff_SmallViewport(t *testing.T) {
+	em := newEvents()
+	e := &em
+	e.autoFollow = false
+	setHeight(e, 5)
+	e.setEvents(makeEvents(30), 30, 0)
+	e.cursor = 0
+	e.scroll = 0
+
+	// scrolloff = min(3, 2) = 2
+	for range 10 {
+		e.moveDown()
+	}
+	// With contentHeight=5 and scrolloff=2, cursor stays at position 2
+	if pos := e.cursor - e.scroll; pos != 2 {
+		t.Fatalf("small viewport cursor pos: got %d, want 2 (centered)", pos)
+	}
+}
+
+func TestScrolloff_UpThenDown(t *testing.T) {
+	em := newEvents()
+	e := &em
+	e.autoFollow = false
+	setHeight(e, 20)
+	e.setEvents(makeEvents(100), 100, 0)
+
+	// Scroll down to middle
+	for range 50 {
+		e.moveDown()
+	}
+	// cursor=50, locked at position 16 (3 from bottom)
+	if pos := e.cursor - e.scroll; pos != 16 {
+		t.Fatalf("after down: pos=%d, want 16", pos)
+	}
+
+	// Now scroll up — cursor should move freely toward position 3
+	for range 5 {
+		e.moveUp()
+	}
+	// cursor=45, should be at position 11 (moved 5 up from 16), no scrolling
+	if pos := e.cursor - e.scroll; pos != 11 {
+		t.Fatalf("after up: pos=%d, want 11 (free movement, no scroll change)", pos)
+	}
+}

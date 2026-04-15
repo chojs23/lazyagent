@@ -112,6 +112,7 @@ func (m *Model) syncLayout() {
 	m.syncSessionPane()
 	m.agents.height = sz.agentH
 	m.events.height = sz.eventsH
+	m.events.clampScroll()
 	m.detail.viewport.SetWidth(max(sz.rightW-4, 10))
 	m.detail.viewport.SetHeight(max(sz.detailH-3, 4))
 }
