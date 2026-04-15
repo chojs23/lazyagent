@@ -472,6 +472,14 @@ func (m Model) updateEvents(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		m.lastKey = "g"
 		return m, nil
+	case "z":
+		if m.lastKey == "z" {
+			m.events.centerCursor()
+			m.lastKey = ""
+			return m, nil
+		}
+		m.lastKey = "z"
+		return m, nil
 	case "l", "right":
 		m.events.hScroll += 4
 	case "h", "left":

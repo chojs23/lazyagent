@@ -114,6 +114,14 @@ func (e *eventsModel) goTop() {
 	e.clampScroll()
 }
 
+func (e *eventsModel) centerCursor() {
+	contentHeight := max(e.height-3, 1)
+	e.scroll = e.cursor - contentHeight/2
+	e.scroll = max(e.scroll, 0)
+	maxScroll := max(len(e.events)-contentHeight, 0)
+	e.scroll = min(e.scroll, maxScroll)
+}
+
 func (e *eventsModel) goBottom() {
 	if len(e.events) > 0 {
 		e.cursor = len(e.events) - 1

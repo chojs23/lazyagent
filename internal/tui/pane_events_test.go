@@ -463,3 +463,59 @@ func TestScrolloff_UpThenDown(t *testing.T) {
 		t.Fatalf("after up: pos=%d, want 11 (free movement, no scroll change)", pos)
 	}
 }
+
+func TestCenterCursor(t *testing.T) {
+	em := newEvents()
+	e := &em
+	e.autoFollow = false
+	setHeight(e, 20)
+	e.setEvents(makeEvents(100), 100, 0)
+
+	// Place cursor in the middle of the list
+	e.cursor = 50
+	e.scroll = 0
+	e.centerCursor()
+
+	// cursor should be at position 10 (middle of 20-line viewport)
+	if pos := e.cursor - e.scroll; pos != 10 {
+		t.Fatalf("center: pos=%d, want 10", pos)
+	}
+	if e.scroll != 40 {
+		t.Fatalf("center scroll: got %d, want 40", e.scroll)
+	}
+}
+
+func TestCenterCursor_NearTop(t *testing.T) {
+	em := newEvents()
+	e := &em
+	e.autoFollow = false
+	setHeight(e, 20)
+	e.setEvents(makeEvents(100), 100, 0)
+
+	// Cursor near the top — scroll clamped to 0
+	e.cursor = 3
+	e.scroll = 0
+	e.centerCursor()
+
+	if e.scroll != 0 {
+		t.Fatalf("center near top: scroll=%d, want 0", e.scroll)
+	}
+}
+
+func TestCenterCursor_NearBottom(t *testing.T) {
+	em := newEvents()
+	e := &em
+	e.autoFollow = false
+	setHeight(e, 20)
+	e.setEvents(makeEvents(100), 100, 0)
+
+	// Cursor near the bottom — scroll clamped to maxScroll
+	e.cursor = 98
+	e.scroll = 70
+	e.centerCursor()
+
+	maxScroll := 100 - 20 // 80
+	if e.scroll != maxScroll {
+		t.Fatalf("center near bottom: scroll=%d, want %d", e.scroll, maxScroll)
+	}
+}
