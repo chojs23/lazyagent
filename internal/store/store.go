@@ -73,8 +73,12 @@ func (s *Store) HealthCheck(ctx context.Context) error {
 }
 
 func (s *Store) init(ctx context.Context) error {
+	// WAL mode is persistent: once set it survives across connections.
+	// If another connection holds a lock the PRAGMA will fail with
+	// SQLITE_BUSY, but that just means WAL is already active.
+	_, _ = s.db.ExecContext(ctx, "PRAGMA journal_mode = WAL")
+
 	pragmas := []string{
-		"PRAGMA journal_mode = WAL",
 		"PRAGMA busy_timeout = 5000",
 		"PRAGMA synchronous = NORMAL",
 		"PRAGMA foreign_keys = ON",

@@ -1,50 +1,68 @@
 import type { Plugin } from "@opencode-ai/plugin";
-import { spawn } from "child_process";
+import { type ChildProcess, spawn } from "child_process";
 
 const LAZYAGENT_BIN = process.env.LAZYAGENT_BIN || "lazyagent";
 
-function ingest(payload: Record<string, unknown>): void {
+// Long-running stream process. A single `lazyagent ingest --stream` child
+// stays alive for the entire plugin lifetime. Events are written as NDJSON
+// (one JSON object per line) to its stdin, avoiding repeated process-spawn
+// and DB-open overhead.
+
+let streamChild: ChildProcess | null = null;
+let respawning = false;
+
+function ensureStreamChild(): ChildProcess | null {
+  if (streamChild && !streamChild.killed) {
+    return streamChild;
+  }
+  if (respawning) {
+    return null;
+  }
+
   try {
     const child = spawn(
       LAZYAGENT_BIN,
-      ["ingest", "--runtime", "opencode"],
+      ["ingest", "--runtime", "opencode", "--stream"],
       {
-        timeout: 5000,
         stdio: ["pipe", "ignore", "pipe"],
         windowsHide: true,
       }
     );
 
-    let stderr = "";
-    child.stderr?.on("data", (chunk) => {
-      if (stderr.length >= 4096) {
-        return;
-      }
-      stderr += String(chunk).slice(0, 4096 - stderr.length);
-    });
-
     child.on("error", (err: any) => {
-      console.error("[lazyagent] ingest launch error:", err.message);
+      console.error("[lazyagent] stream process error:", err.message);
+      streamChild = null;
     });
 
     child.on("close", (code, signal) => {
-      if (code === 0) {
-        return;
+      streamChild = null;
+      if (code !== 0 && code !== null) {
+        console.error(
+          "[lazyagent] stream process exited:",
+          signal ? `signal ${signal}` : `exit code ${code}`
+        );
       }
-      const detail = stderr.trim();
-      const reason = signal
-        ? `signal ${signal}`
-        : `exit code ${code ?? "unknown"}`;
-      console.error(
-        "[lazyagent] ingest failed:",
-        detail ? `${reason}: ${detail}` : reason
-      );
+      // Respawn after a short delay to avoid tight restart loops.
+      respawning = true;
+      setTimeout(() => {
+        respawning = false;
+      }, 1000);
     });
 
-    child.stdin?.end(JSON.stringify(payload));
+    streamChild = child;
+    return child;
   } catch (err: any) {
-    console.error("[lazyagent] ingest setup error:", err.message);
+    console.error("[lazyagent] stream spawn error:", err.message);
+    return null;
   }
+}
+
+function ingest(payload: Record<string, unknown>): void {
+  const child = ensureStreamChild();
+  if (!child?.stdin?.writable) {
+    return;
+  }
+  child.stdin.write(JSON.stringify(payload) + "\n");
 }
 
 // Events we forward from the generic event hook.

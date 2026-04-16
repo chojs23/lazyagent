@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"context"
 	_ "embed"
 	"encoding/json"
@@ -71,12 +72,22 @@ func run() error {
 		}
 		return runInit(os.Args[2])
 	case "ingest":
-		_, st, err := openStore()
-		if err != nil {
+		// Parse flags before opening the store so that the runtime name
+		// is available for error messages even when the DB fails to open.
+		fs := flag.NewFlagSet("ingest", flag.ContinueOnError)
+		runtime := fs.String("runtime", "claude", "event runtime")
+		quiet := fs.Bool("quiet", false, "suppress stdout output (required for Codex hooks)")
+		stream := fs.Bool("stream", false, "read newline-delimited JSON from stdin continuously")
+		if err := fs.Parse(os.Args[2:]); err != nil {
 			return err
 		}
+
+		_, st, err := openStore()
+		if err != nil {
+			return fmt.Errorf("ingest %s: %w", *runtime, err)
+		}
 		defer st.Close()
-		return runIngest(st, os.Args[2:])
+		return runIngestParsed(st, *runtime, *quiet, *stream)
 	case "health":
 		cfg, st, err := openStore()
 		if err != nil {
@@ -111,12 +122,9 @@ func openStore() (config.Config, *store.Store, error) {
 	return cfg, st, nil
 }
 
-func runIngest(st *store.Store, args []string) error {
-	fs := flag.NewFlagSet("ingest", flag.ContinueOnError)
-	runtime := fs.String("runtime", "claude", "event runtime")
-	quiet := fs.Bool("quiet", false, "suppress stdout output (required for Codex hooks)")
-	if err := fs.Parse(args); err != nil {
-		return err
+func runIngestParsed(st *store.Store, runtime string, quiet, stream bool) error {
+	if stream {
+		return runIngestStream(st, runtime)
 	}
 
 	input, err := io.ReadAll(os.Stdin)
@@ -130,7 +138,7 @@ func runIngest(st *store.Store, args []string) error {
 	}
 
 	var result app.IngestResult
-	switch *runtime {
+	switch runtime {
 	case "claude":
 		result, err = app.IngestClaudeEvent(context.Background(), st, payload)
 	case "opencode":
@@ -138,16 +146,57 @@ func runIngest(st *store.Store, args []string) error {
 	case "codex":
 		result, err = app.IngestCodexEvent(context.Background(), st, payload)
 	default:
-		return fmt.Errorf("unsupported runtime %q", *runtime)
+		return fmt.Errorf("unsupported runtime %q", runtime)
 	}
 	if err != nil {
-		return fmt.Errorf("ingest %s: %w", *runtime, err)
+		return fmt.Errorf("ingest %s: %w", runtime, err)
 	}
 
-	if *quiet {
+	if quiet {
 		return nil
 	}
 	return writeJSON(map[string]any{"status": "ok", "meta": result})
+}
+
+// runIngestStream reads newline-delimited JSON from stdin and processes each
+// line as a separate event. The process stays alive until stdin is closed,
+// avoiding repeated process-spawn and DB-open overhead when a plugin sends
+// many events over the lifetime of a session.
+func runIngestStream(st *store.Store, runtime string) error {
+	scanner := bufio.NewScanner(os.Stdin)
+
+	// Allow up to 1 MB per line (default 64 KB is too small for some events).
+	scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
+
+	for scanner.Scan() {
+		line := scanner.Bytes()
+		if len(line) == 0 {
+			continue
+		}
+
+		var payload map[string]any
+		if err := json.Unmarshal(line, &payload); err != nil {
+			applog.Error("stream: decode JSON line", err)
+			continue
+		}
+
+		var err error
+		switch runtime {
+		case "claude":
+			_, err = app.IngestClaudeEvent(context.Background(), st, payload)
+		case "opencode":
+			_, err = app.IngestOpenCodeEvent(context.Background(), st, payload)
+		case "codex":
+			_, err = app.IngestCodexEvent(context.Background(), st, payload)
+		default:
+			return fmt.Errorf("unsupported runtime %q", runtime)
+		}
+		if err != nil {
+			applog.Error("stream: ingest "+runtime, err)
+		}
+	}
+
+	return scanner.Err()
 }
 
 func runHealth(st *store.Store, dbPath string) error {
