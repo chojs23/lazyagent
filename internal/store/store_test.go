@@ -267,12 +267,20 @@ func TestFilteredSessionTreeEventQueriesStayAlignedForMessageResponses(t *testin
 				Payload:   `{"last_assistant_message":"subagent answer"}`,
 			},
 			{
+				AgentID:   "agent-parent",
+				SessionID: "parent",
+				Type:      "system",
+				Subtype:   "Stop",
+				Timestamp: 1150,
+				Payload:   `{"reason":"user_cancelled"}`,
+			},
+			{
 				AgentID:   "agent-child",
 				SessionID: "child",
 				Type:      "message",
 				Subtype:   "PartUpdated",
 				Timestamp: 1200,
-				Payload:   `{"part_type":"text","text":"streamed assistant text"}`,
+				Payload:   `{"part_type": "text", "text":"streamed assistant text"}`,
 			},
 			{
 				AgentID:   "agent-child",
@@ -335,6 +343,89 @@ func TestFilteredSessionTreeEventQueriesStayAlignedForMessageResponses(t *testin
 		if events[i].Subtype != want {
 			t.Fatalf("events[%d] subtype=%q, want %q", i, events[i].Subtype, want)
 		}
+	}
+}
+
+func TestFilteredSessionTreeEventQueriesExcludeStopsWithoutAssistantMessage(t *testing.T) {
+	st := testStore(t)
+	ctx := context.Background()
+
+	var projectID int64
+	err := st.WithTx(ctx, func(q *Queries) error {
+		var err error
+		projectID, err = q.CreateProject(ctx, "message-stop-proj", "Message Stop", "/tmp/message-stop", "/tmp/message-stop-transcript")
+		return err
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	err = st.WithTx(ctx, func(q *Queries) error {
+		if err := q.UpsertSession(ctx, "parent", "", projectID, "parent", "claude", nil, 1000, ""); err != nil {
+			return err
+		}
+		if err := q.UpsertAgent(ctx, "agent-parent", "parent", "", "Parent", "", "main", ""); err != nil {
+			return err
+		}
+
+		events := []model.Event{
+			{
+				AgentID:   "agent-parent",
+				SessionID: "parent",
+				Type:      "system",
+				Subtype:   "Stop",
+				Timestamp: 1000,
+				Payload:   `{"last_assistant_message":"real assistant answer"}`,
+			},
+			{
+				AgentID:   "agent-parent",
+				SessionID: "parent",
+				Type:      "system",
+				Subtype:   "Stop",
+				Timestamp: 1100,
+				Payload:   `{"reason":"user_cancelled"}`,
+			},
+			{
+				AgentID:   "agent-parent",
+				SessionID: "parent",
+				Type:      "system",
+				Subtype:   "SubagentStop",
+				Timestamp: 1200,
+				Payload:   `{"last_assistant_message":""}`,
+			},
+		}
+
+		for _, event := range events {
+			if _, err := q.InsertEvent(ctx, event); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	filter := model.EventFilter{Type: "message"}
+
+	count, err := st.Read().CountFilteredEventsForSessionTree(ctx, "parent", filter)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	events, err := st.Read().ListEventsForSessionTree(ctx, "parent", filter)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if count != len(events) {
+		t.Fatalf("filtered message tree count drifted from list query: count=%d list=%d", count, len(events))
+	}
+	if count != 1 {
+		t.Fatalf("expected only one stop event with assistant text, got %d", count)
+	}
+	if events[0].Subtype != "Stop" {
+		t.Fatalf("event subtype=%q, want Stop", events[0].Subtype)
 	}
 }
 

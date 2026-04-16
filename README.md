@@ -221,7 +221,7 @@ Project grouping is automatic. `lazyagent` first tries to match sessions by work
 
 ### Filtering and search
 
-- **Type filter** -- Press `t` to cycle through: All, User, Code, System, Tool, Session.
+- **Type filter** -- Press `t` to cycle through: All, User, Message, Code, System, Tool, Session.
 - **Agent filter** -- Select an agent in the agents pane to show only that agent's events. Press `a` to clear the filter and show all agents again.
 - **Text search** -- Press `/` and type a pattern to search event payloads.
 
@@ -229,13 +229,14 @@ Project grouping is automatic. `lazyagent` first tries to match sessions by work
 
 `lazyagent` tracks the following event types depending on the runtime.
 
-| Type    | Subtypes                                                           | Description                                                                                                                                      |
-| ------- | ------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------ |
-| User    | `UserPromptSubmit`                                                 | User sent a prompt                                                                                                                               |
-| Code    | --                                                                 | Convenience filter. Shows tool events where tool name is `Edit`, `Write`, `apply_patch`, or `NotebookEdit`, and events with subtype `FileEdited` |
-| System  | `Stop`, `SubagentStop`, `Notification`, `SessionStatus` and others | Agent stop, status, and notification events                                                                                                      |
-| Tool    | `PreToolUse`, `PostToolUse`, `PostToolUseFailure`                  | Tool execution start, success, or failure                                                                                                        |
-| Session | `SessionStart`, `SessionEnd`, `SessionUpdated`, `SessionDiff`      | Session lifecycle.                                                                                                                               |
+| Type    | Subtypes                                                                                                                                             | Description                                                            |
+| ------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------- |
+| User    | `UserPromptSubmit`                                                                                                                                   | User sent a prompt                                                     |
+| Message | --                                                                                                                                                   | AI response output                                                     |
+| Code    | --                                                                                                                                                   | Code-changing actions                                                  |
+| System  | `Stop`, `SubagentStop`, `StopFailure`, `Notification`, `SessionStatus`, `PermissionReply`, `TodoUpdate`, `CommandExecuted`, `FileEdited`, and others | Agent stop, status, permission, todo, command, and other system events |
+| Tool    | `PreToolUse`, `PostToolUse`, `PostToolUseFailure`                                                                                                    | Tool execution start, success, or failure                              |
+| Session | `SessionStart`, `SessionEnd`, `SessionUpdated`, `SessionDiff`                                                                                        | Session lifecycle                                                      |
 
 When a `PreToolUse` or `PostToolUse` event involves the `Agent` tool, `lazyagent` automatically creates a subagent entry and links subsequent events to it.
 

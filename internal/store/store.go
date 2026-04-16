@@ -650,13 +650,13 @@ func appendEventFilterConditions(parts []string, args []any, f model.EventFilter
 		// `SubagentStop`, and OpenCode streams assistant text through
 		// `PartUpdated` events tagged with `part_type`.
 		parts = append(parts, `AND (
-			subtype IN ('Stop', 'SubagentStop')
+			(
+				subtype IN ('Stop', 'SubagentStop')
+				AND COALESCE(json_extract(payload, '$.last_assistant_message'), '') <> ''
+			)
 			OR (
 				subtype = 'PartUpdated'
-				AND (
-					payload LIKE '%"part_type":"text"%'
-					OR payload LIKE '%"part_type":"reasoning"%'
-				)
+				AND json_extract(payload, '$.part_type') IN ('text', 'reasoning')
 			)
 		)`)
 	} else if f.Type == "codechange" {
