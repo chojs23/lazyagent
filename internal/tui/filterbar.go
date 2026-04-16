@@ -14,6 +14,7 @@ var typeFilters = []struct {
 }{
 	{"", "All"},
 	{"user", "User"},
+	{"message", "Message"},
 	{"codechange", "Code"},
 	{"system", "System"},
 	{"tool", "Tool"},

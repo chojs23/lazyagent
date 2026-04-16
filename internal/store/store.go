@@ -644,7 +644,22 @@ func appendEventFilterConditions(parts []string, args []any, f model.EventFilter
 		}
 		parts = append(parts, fmt.Sprintf("AND agent_id IN (%s)", strings.Join(placeholders, ",")))
 	}
-	if f.Type == "codechange" {
+	if f.Type == "message" {
+		// Agent response output is stored differently by runtime:
+		// Claude and Codex end with `Stop`, Claude subagents end with
+		// `SubagentStop`, and OpenCode streams assistant text through
+		// `PartUpdated` events tagged with `part_type`.
+		parts = append(parts, `AND (
+			(
+				subtype IN ('Stop', 'SubagentStop')
+				AND COALESCE(json_extract(payload, '$.last_assistant_message'), '') <> ''
+			)
+			OR (
+				subtype = 'PartUpdated'
+				AND json_extract(payload, '$.part_type') IN ('text', 'reasoning')
+			)
+		)`)
+	} else if f.Type == "codechange" {
 		parts = append(parts, "AND (tool_name IN ('Edit','Write','apply_patch','NotebookEdit') OR subtype = 'FileEdited')")
 	} else if f.Type != "" {
 		parts = append(parts, "AND type = ?")
