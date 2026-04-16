@@ -464,6 +464,56 @@ func TestScrolloff_UpThenDown(t *testing.T) {
 	}
 }
 
+func TestSetEvents_OffsetShift_NoAutoFollow(t *testing.T) {
+	em := newEvents()
+	e := &em
+	setHeight(e, 20)
+
+	// Initial load: 100 events, offset=400 (total 500)
+	e.setEvents(makeEvents(100), 500, 400)
+	e.autoFollow = false
+	e.cursor = 50
+	e.scroll = 45
+	e.clampScroll()
+
+	cursorBefore := e.cursor
+	scrollBefore := e.scroll
+
+	// 10 new events arrive: total becomes 510, offset shifts to 410.
+	// The same events are still in the slice at the same relative
+	// positions, but offset increased by 10.
+	e.setEvents(makeEvents(100), 510, 410)
+
+	// Cursor and scroll should compensate for the +10 offset shift,
+	// keeping the user on the same visual position.
+	if e.cursor != cursorBefore-10 {
+		t.Fatalf("cursor after offset shift: got %d, want %d", e.cursor, cursorBefore-10)
+	}
+	if e.scroll != scrollBefore-10 {
+		t.Fatalf("scroll after offset shift: got %d, want %d", e.scroll, scrollBefore-10)
+	}
+}
+
+func TestSetEvents_OffsetShift_CursorClampsToZero(t *testing.T) {
+	em := newEvents()
+	e := &em
+	setHeight(e, 20)
+
+	// User is viewing near the top of loaded events.
+	e.setEvents(makeEvents(100), 500, 400)
+	e.autoFollow = false
+	e.cursor = 3
+	e.scroll = 0
+	e.clampScroll()
+
+	// Offset shifts by more than cursor position — cursor must clamp to 0.
+	e.setEvents(makeEvents(100), 510, 410)
+
+	if e.cursor < 0 {
+		t.Fatalf("cursor should not be negative: got %d", e.cursor)
+	}
+}
+
 func TestCenterCursor(t *testing.T) {
 	em := newEvents()
 	e := &em

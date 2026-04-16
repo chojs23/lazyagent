@@ -30,12 +30,23 @@ func newEvents() eventsModel {
 }
 
 func (e *eventsModel) setEvents(events []model.Event, rawCount int, offset int) {
+	prevOffset := e.loadedOffset
+
 	e.events = events
 	e.rawCount = rawCount
 	e.loadedOffset = offset
+
 	if e.autoFollow && len(events) > 0 {
 		e.cursor = len(events) - 1
+	} else {
+		// Compensate cursor/scroll for the offset shift so the user
+		// stays on the same event when new events arrive at the tail.
+		delta := offset - prevOffset
+		e.cursor -= delta
+		e.scroll -= delta
 	}
+
+	e.cursor = max(e.cursor, 0)
 	if e.cursor >= len(events) {
 		e.cursor = max(len(events)-1, 0)
 	}
