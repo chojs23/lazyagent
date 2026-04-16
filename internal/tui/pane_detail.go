@@ -53,12 +53,12 @@ func (d *detailModel) setEvent(ev *model.Event, agents []model.Agent) {
 
 func (d *detailModel) toggleJSON() {
 	d.showJSON = !d.showJSON
-	d.syncContent(false)
+	d.syncContent(true)
 }
 
 func (d *detailModel) toggleExpand() {
 	d.expandContent = !d.expandContent
-	d.syncContent(false)
+	d.syncContent(true)
 }
 
 func (d *detailModel) syncContent(preserveScroll bool) {
