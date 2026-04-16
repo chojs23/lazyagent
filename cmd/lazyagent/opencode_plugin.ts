@@ -8,48 +8,180 @@ const LAZYAGENT_BIN = process.env.LAZYAGENT_BIN || "lazyagent";
 // (one JSON object per line) to its stdin, avoiding repeated process-spawn
 // and DB-open overhead.
 
+const MAX_PENDING = 500;
 let streamChild: ChildProcess | null = null;
+let childAlive = false;
 let respawning = false;
 
-function ensureStreamChild(): ChildProcess | null {
-  if (streamChild && !streamChild.killed) {
-    return streamChild;
-  }
-  if (respawning) {
-    return null;
+export type QueueWriter = {
+  writable: boolean;
+  write(chunk: string, callback: (error?: Error | null) => void): boolean;
+  once(event: "drain", listener: () => void): void;
+};
+
+export function createPendingEventQueue({
+  maxPending,
+  getWriter,
+  onDrop,
+}: {
+  maxPending: number;
+  getWriter: () => QueueWriter | null;
+  onDrop?: () => void;
+}) {
+  const pendingEvents: string[] = [];
+  let writeInFlight = false;
+  let waitingForDrain = false;
+  let generation = 0;
+
+  function drainPending(): void {
+    if (writeInFlight || waitingForDrain || pendingEvents.length === 0) {
+      return;
+    }
+
+    const writer = getWriter();
+    if (!writer?.writable) {
+      return;
+    }
+
+    const line = pendingEvents[0];
+    const currentGeneration = generation;
+    writeInFlight = true;
+
+    let canContinue = false;
+    try {
+      canContinue = writer.write(line, (error?: Error | null) => {
+        if (currentGeneration !== generation) {
+          return;
+        }
+
+        writeInFlight = false;
+        if (error) {
+          return;
+        }
+
+        pendingEvents.shift();
+        if (!waitingForDrain) {
+          drainPending();
+        }
+      });
+    } catch {
+      if (currentGeneration === generation) {
+        writeInFlight = false;
+      }
+      return;
+    }
+
+    if (!canContinue) {
+      waitingForDrain = true;
+      writer.once("drain", () => {
+        if (currentGeneration !== generation) {
+          return;
+        }
+
+        waitingForDrain = false;
+        if (!writeInFlight) {
+          drainPending();
+        }
+      });
+    }
   }
 
+  return {
+    enqueue(line: string): boolean {
+      if (pendingEvents.length >= maxPending) {
+        onDrop?.();
+        return false;
+      }
+
+      pendingEvents.push(line);
+      drainPending();
+      return true;
+    },
+    drainPending,
+    markDisconnected(): void {
+      generation += 1;
+      writeInFlight = false;
+      waitingForDrain = false;
+    },
+    pendingCount(): number {
+      return pendingEvents.length;
+    },
+  };
+}
+
+const pendingQueue = createPendingEventQueue({
+  maxPending: MAX_PENDING,
+  getWriter: () => {
+    const child = ensureStreamChild();
+    if (!child?.stdin?.writable) {
+      return null;
+    }
+    return child.stdin;
+  },
+  onDrop: () => {
+    console.error("[lazyagent] pending buffer full, dropping event");
+  },
+});
+
+function scheduleRespawn(): void {
+  if (respawning) {
+    return;
+  }
+
+  respawning = true;
+  setTimeout(() => {
+    respawning = false;
+    pendingQueue.drainPending();
+  }, 1000);
+}
+
+function disconnectCurrentChild(child: ChildProcess): boolean {
+  if (streamChild !== child) {
+    return false;
+  }
+
+  childAlive = false;
+  streamChild = null;
+  pendingQueue.markDisconnected();
+  scheduleRespawn();
+  return true;
+}
+
+function spawnStreamChild(): ChildProcess | null {
   try {
     const child = spawn(
       LAZYAGENT_BIN,
       ["ingest", "--runtime", "opencode", "--stream"],
       {
-        stdio: ["pipe", "ignore", "pipe"],
+        stdio: ["pipe", "ignore", "ignore"],
         windowsHide: true,
       }
     );
 
     child.on("error", (err: any) => {
       console.error("[lazyagent] stream process error:", err.message);
-      streamChild = null;
+      disconnectCurrentChild(child);
     });
 
-    child.on("close", (code, signal) => {
-      streamChild = null;
+    child.stdin?.on("error", () => {
+      disconnectCurrentChild(child);
+    });
+
+    child.on("close", (code: number | null, signal: NodeJS.Signals | null) => {
+      if (!disconnectCurrentChild(child)) {
+        return;
+      }
+
       if (code !== 0 && code !== null) {
         console.error(
           "[lazyagent] stream process exited:",
           signal ? `signal ${signal}` : `exit code ${code}`
         );
       }
-      // Respawn after a short delay to avoid tight restart loops.
-      respawning = true;
-      setTimeout(() => {
-        respawning = false;
-      }, 1000);
     });
 
     streamChild = child;
+    childAlive = true;
     return child;
   } catch (err: any) {
     console.error("[lazyagent] stream spawn error:", err.message);
@@ -57,12 +189,19 @@ function ensureStreamChild(): ChildProcess | null {
   }
 }
 
-function ingest(payload: Record<string, unknown>): void {
-  const child = ensureStreamChild();
-  if (!child?.stdin?.writable) {
-    return;
+function ensureStreamChild(): ChildProcess | null {
+  if (streamChild && childAlive) {
+    return streamChild;
   }
-  child.stdin.write(JSON.stringify(payload) + "\n");
+  if (respawning) {
+    return null;
+  }
+  return spawnStreamChild();
+}
+
+function ingest(payload: Record<string, unknown>): void {
+  const line = JSON.stringify(payload) + "\n";
+  pendingQueue.enqueue(line);
 }
 
 // Events we forward from the generic event hook.
@@ -353,8 +492,8 @@ function extractEventData(
   }
 }
 
-export const LazyagentPlugin: Plugin = async ({ project }) => {
-  const projectDir = project?.path || process.cwd();
+export const LazyagentPlugin: Plugin = async ({ directory }) => {
+  const projectDir = directory || process.cwd();
 
   return {
     "tool.execute.before": async ({ tool, sessionID, callID }, { args }) => {
