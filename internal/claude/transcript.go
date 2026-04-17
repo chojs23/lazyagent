@@ -11,9 +11,9 @@ import (
 
 // TokenUsage holds token counts for a single API call.
 type TokenUsage struct {
-	InputTokens        int64
-	OutputTokens       int64
-	CacheReadTokens    int64
+	InputTokens         int64
+	OutputTokens        int64
+	CacheReadTokens     int64
 	CacheCreationTokens int64
 }
 
@@ -105,7 +105,10 @@ func ReadTranscriptTokens(transcriptPath string) (*SessionTokenSummary, error) {
 		}
 
 		msgID := stringVal(msg, "id")
-		modelName := shortModelName(stringVal(msg, "model"))
+		modelName := normalizeModel(stringVal(msg, "model"))
+		if modelName == "" {
+			modelName = "unknown"
+		}
 
 		tokens := TokenUsage{
 			InputTokens:         int64Val(usage, "input_tokens"),
@@ -266,21 +269,6 @@ func splitOnSeparators(s string) []string {
 		result = append(result, s[start:])
 	}
 	return result
-}
-
-func shortModelName(model string) string {
-	if model == "" {
-		return "unknown"
-	}
-	// Strip date suffix like -20250514
-	parts := strings.Split(model, "-")
-	if len(parts) > 1 {
-		last := parts[len(parts)-1]
-		if len(last) == 8 && isDigits(last) {
-			parts = parts[:len(parts)-1]
-		}
-	}
-	return strings.Join(parts, "-")
 }
 
 func isDigits(s string) bool {

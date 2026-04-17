@@ -793,10 +793,10 @@ func (m Model) View() tea.View {
 		full = renderOverlay(full, m.width, m.height, m.debug.view(m.width, m.height))
 	}
 	if m.errorOverlay.visible {
-		full = renderOverlay(full, m.width, m.height, m.errorOverlay.view(m.width, m.height))
+		full = renderOverlay(full, m.width, m.height, m.errorOverlay.view(m.width))
 	}
 	if m.tokens.visible {
-		full = m.tokens.viewFullScreen(m.width, m.height)
+		full = renderOverlayCentered(full, m.width, m.height, m.tokens.viewFullScreen(m.width, m.height))
 	}
 	if lipgloss.Height(full) > m.height {
 		full = lipgloss.NewStyle().MaxHeight(m.height).Render(full)

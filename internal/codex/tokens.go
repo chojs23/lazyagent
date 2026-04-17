@@ -76,7 +76,7 @@ func ReadTranscriptTokens(transcriptPath string) (*claude.SessionTokenSummary, e
 				if toolName == "shell_command" {
 					args := jsonutil.String(payload["arguments"])
 					cmd := extractCodexCommand(args)
-					for _, name := range extractCodexCommandNames(cmd) {
+					for _, name := range claude.ExtractCommandNames(cmd) {
 						bs, ok := summary.BashBreakdown[name]
 						if !ok {
 							bs = &claude.ToolStats{}
@@ -183,11 +183,6 @@ func extractCodexCommand(args string) string {
 	}
 	return cmd
 }
-
-func extractCodexCommandNames(command string) []string {
-	return claude.ExtractCommandNames(command)
-}
-
 func int64Val(m map[string]any, key string) int64 {
 	v, ok := m[key]
 	if !ok {

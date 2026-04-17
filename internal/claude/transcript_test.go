@@ -150,19 +150,19 @@ func TestExtractCommandNames(t *testing.T) {
 	}
 }
 
-func TestShortModelName(t *testing.T) {
+func TestNormalizeModel(t *testing.T) {
 	tests := []struct {
 		input string
 		want  string
 	}{
 		{"claude-opus-4-6", "claude-opus-4-6"},
 		{"claude-sonnet-4-6-20250514", "claude-sonnet-4-6"},
-		{"", "unknown"},
+		{"", ""},
 	}
 	for _, tt := range tests {
-		got := shortModelName(tt.input)
+		got := normalizeModel(tt.input)
 		if got != tt.want {
-			t.Errorf("shortModelName(%q) = %q, want %q", tt.input, got, tt.want)
+			t.Errorf("normalizeModel(%q) = %q, want %q", tt.input, got, tt.want)
 		}
 	}
 }

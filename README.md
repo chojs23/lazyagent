@@ -234,6 +234,14 @@ Project grouping is automatic. `lazyagent` first tries to match sessions by work
 
 Press `b` on a selected session to open the token usage overlay.
 
+The overlay is designed as a compact session audit sheet instead of a raw dashboard. It keeps the main TUI visible underneath and groups the data into a few ranked sections:
+
+- **Session** -- Runtime, session label, and project context for the selected run.
+- **Overview** -- Cost, model calls, direct input, total input, output, and cache numbers.
+- **Signals** -- Derived hints such as cache share, output ratio, top model, top tool, and top command.
+- **Model Ledger** -- Ranked per-model usage with share, calls, total input, and output.
+- **Execution Mix** -- Ranked tools and commands used in the session.
+
 - **Model Calls** -- Counted model usage events for the selected runtime.
 - **Direct Input** -- Non-cache input tokens only.
 - **Total Input** -- `Direct Input + Cache Read + Cache Write`.

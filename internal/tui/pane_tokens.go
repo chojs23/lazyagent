@@ -261,11 +261,15 @@ func parseTokenInt(s string) int64 {
 }
 
 func (t *tokensOverlay) calcView(width, height int) (int, int, int) {
-	boxWidth := min(max(width-6, 40), 110)
-	// Box overhead: border(2) + padding(2) + header(1) + blank(1) + centering margin(4) = 10
-	viewHeight := min(max(height-10, 4), 50)
+	boxWidth, viewHeight := tokenOverlayLayout(width, height)
 	totalLines := len(t.contentLines(boxWidth))
 	return boxWidth, viewHeight, totalLines
+}
+
+func tokenOverlayLayout(width, height int) (int, int) {
+	boxWidth := min(max(width-4, 24), 118)
+	viewHeight := min(max(height-11, 1), 34)
+	return boxWidth, viewHeight
 }
 
 func (t *tokensOverlay) scrollUp(n int) {
@@ -300,8 +304,7 @@ func (t *tokensOverlay) contentLines(bodyWidth int) []string {
 	if t.summary == nil {
 		return []string{dimStyle.Render("(no data)")}
 	}
-	colW := max((bodyWidth-7)/2, 20)
-	return renderTokenColumns(t.summary, colW)
+	return renderTokenColumns(t.session, t.summary, max(bodyWidth-4, 20))
 }
 
 func (t *tokensOverlay) viewFullScreen(width, height int) string {
@@ -309,103 +312,106 @@ func (t *tokensOverlay) viewFullScreen(width, height int) string {
 		return ""
 	}
 
-	boxWidth := min(max(width-6, 40), 110)
-	// Box overhead: border(2) + padding(2) + header(1) + blank(1) + centering margin(4) = 10
-	viewHeight := min(max(height-10, 4), 50)
+	boxWidth, viewHeight := tokenOverlayLayout(width, height)
 
-	title := lipgloss.NewStyle().Bold(true).Foreground(colorCyan).Render("Token Usage")
-	sessionHint := ""
+	title := lipgloss.NewStyle().Bold(true).Foreground(colorCyan).Render("Usage Audit")
+	sessionHint := dimStyle.Render("No session selected")
 	if t.session != nil {
 		label := orDefault(t.session.Slug, shortID(t.session.ID))
-		sessionHint = "  " + dimStyle.Render(label)
+		sessionHint = dimStyle.Render(runtimeLabel(t.session.Runtime) + "  " + label)
 	}
-	header := title + sessionHint
+	hints := dimStyle.Render("j/k scroll  ctrl+u/d jump  esc close")
+	headerLines := []string{
+		title + "  " + sessionHint,
+		hints,
+		dimStyle.Render(strings.Repeat("─", max(boxWidth-6, 8))),
+		"",
+	}
 
 	lines := t.contentLines(boxWidth)
 	totalLines := len(lines)
 
-	// Clamp scroll.
 	maxScroll := max(totalLines-viewHeight, 0)
 	scroll := min(t.scroll, maxScroll)
 
 	end := min(scroll+viewHeight, totalLines)
 	visible := lines[scroll:end]
 
-	// Pad to fixed height so box doesn't resize.
-	allLines := append([]string{header, ""}, visible...)
-	for len(allLines) < viewHeight+2 {
+	allLines := append(append([]string{}, headerLines...), visible...)
+	for len(allLines) < len(headerLines)+viewHeight {
 		allLines = append(allLines, "")
 	}
 
 	box := lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
 		BorderForeground(colorCyan).
-		Padding(1, 2).
+		Padding(2, 2, 1, 2).
 		Width(boxWidth).
 		Render(strings.Join(allLines, "\n"))
 
-	boxH := lipgloss.Height(box)
-	boxW := lipgloss.Width(box)
-	padTop := max((height-boxH)/2, 0)
-	padLeft := max((width-boxW)/2, 0)
-
-	// Build full-screen output line by line.
-	var b strings.Builder
-	boxLines := strings.Split(box, "\n")
-	for row := 0; row < height; row++ {
-		if row > 0 {
-			b.WriteByte('\n')
-		}
-		boxRow := row - padTop
-		if boxRow >= 0 && boxRow < len(boxLines) {
-			if padLeft > 0 {
-				b.WriteString(strings.Repeat(" ", padLeft))
-			}
-			b.WriteString(boxLines[boxRow])
-			// Fill remaining width.
-			lineW := padLeft + boxW
-			if lineW < width {
-				b.WriteString(strings.Repeat(" ", width-lineW))
-			}
-		} else {
-			b.WriteString(strings.Repeat(" ", width))
-		}
-	}
-
-	return b.String()
+	return box
 }
 
-// renderTokenColumns renders the token summary as a 2-column layout:
-//
-//	overview | model
-//	tool usage | shell commands
-func renderTokenColumns(s *claude.SessionTokenSummary, colW int) []string {
-	overviewBlock := renderOverviewSection(s)
-	modelBlock := renderModelSection(s)
-	toolBlock := renderToolSection(s)
-	bashBlock := renderBashSection(s)
+func renderTokenColumns(session *model.Session, s *claude.SessionTokenSummary, bodyWidth int) []string {
+	if bodyWidth < 86 {
+		stackWidth := max(bodyWidth, 20)
+		stacked := strings.Join([]string{
+			renderSectionBlock("Session", renderSessionSection(session), stackWidth),
+			renderSectionBlock("Overview", renderOverviewSection(s), stackWidth),
+			renderSectionBlock("Signals", renderSignalsSection(s), stackWidth),
+			renderSectionBlock("Model Ledger", renderModelSection(s), stackWidth),
+			renderSectionBlock("Execution Mix", renderExecutionSection(s), stackWidth),
+		}, "\n\n")
+		return strings.Split(stacked, "\n")
+	}
 
-	topLeft := renderColumnBlock("Overview", overviewBlock, colW)
-	topRight := renderColumnBlock("Model", modelBlock, colW)
-	topRow := lipgloss.JoinHorizontal(lipgloss.Top, topLeft, "  ", topRight)
+	leftWidth := min(max(bodyWidth/3, 24), 30)
+	mainWidth := max(bodyWidth-leftWidth-3, 24)
+	left := strings.Join([]string{
+		renderSectionBlock("Session", renderSessionSection(session), leftWidth),
+		renderSectionBlock("Overview", renderOverviewSection(s), leftWidth),
+		renderSectionBlock("Signals", renderSignalsSection(s), leftWidth),
+	}, "\n\n")
+	right := strings.Join([]string{
+		renderSectionBlock("Model Ledger", renderModelSection(s), mainWidth),
+		renderSectionBlock("Execution Mix", renderExecutionSection(s), mainWidth),
+	}, "\n\n")
 
-	botLeft := renderColumnBlock("Tool Usage", toolBlock, colW)
-	botRight := renderColumnBlock("Shell Commands", bashBlock, colW)
-	botRow := lipgloss.JoinHorizontal(lipgloss.Top, botLeft, "  ", botRight)
-
-	full := topRow + "\n" + botRow
+	full := lipgloss.JoinHorizontal(lipgloss.Top,
+		lipgloss.NewStyle().Width(leftWidth).Render(left),
+		"   ",
+		lipgloss.NewStyle().Width(mainWidth).Render(right),
+	)
 	return strings.Split(full, "\n")
 }
 
-func renderColumnBlock(title string, body []string, width int) string {
+func renderSectionBlock(title string, body []string, width int) string {
 	header := lipgloss.NewStyle().Bold(true).Foreground(colorYellow).Render(title)
-	content := header
+	divider := dimStyle.Render(strings.Repeat("─", max(width-2, 10)))
+	content := header + "\n" + divider
 	if len(body) > 0 {
 		content += "\n" + strings.Join(body, "\n")
 	} else {
 		content += "\n" + dimStyle.Render("(none)")
 	}
 	return lipgloss.NewStyle().Width(width).Render(content)
+}
+
+func renderSessionSection(session *model.Session) []string {
+	if session == nil {
+		return []string{dimStyle.Render("No session selected")}
+	}
+
+	project := orDefault(session.ProjectName, session.ProjectSlug)
+	if project == "" {
+		project = "-"
+	}
+
+	return []string{
+		tokenField("Runtime", runtimeLabel(session.Runtime)),
+		tokenField("Session", orDefault(session.Slug, shortID(session.ID))),
+		tokenField("Project", project),
+	}
 }
 
 func renderOverviewSection(s *claude.SessionTokenSummary) []string {
@@ -446,30 +452,61 @@ func renderModelSection(s *claude.SessionTokenSummary) []string {
 	})
 
 	var lines []string
-	for _, m := range models {
+	totalTokens := max(s.Tokens.Total(), 1)
+	limit := min(len(models), 6)
+	for idx, m := range models[:limit] {
 		inTotal := m.stats.Tokens.InputTokens + m.stats.Tokens.CacheReadTokens + m.stats.Tokens.CacheCreationTokens
-		lines = append(lines, fmt.Sprintf("  %s", m.name))
-		lines = append(lines, fmt.Sprintf("    %s  calls:%d  total in:%s  out:%s",
+		share := float64(m.stats.Tokens.Total()) / float64(totalTokens) * 100
+		lines = append(lines, fmt.Sprintf("%d. %s", idx+1, m.name))
+		lines = append(lines, fmt.Sprintf("   %s  share:%4.1f%%  calls:%d  total in:%s  out:%s",
 			formatCost(m.stats.CostUSD),
+			share,
 			m.stats.Calls,
 			formatTokenCount(inTotal),
 			formatTokenCount(m.stats.Tokens.OutputTokens)))
 	}
+	if len(models) > limit {
+		lines = append(lines, dimStyle.Render(fmt.Sprintf("… %d more models", len(models)-limit)))
+	}
 	return lines
 }
 
-func renderToolSection(s *claude.SessionTokenSummary) []string {
-	if len(s.ToolBreakdown) == 0 {
-		return nil
+func renderSignalsSection(s *claude.SessionTokenSummary) []string {
+	totalInput := s.Tokens.InputTokens + s.Tokens.CacheReadTokens + s.Tokens.CacheCreationTokens
+	lines := []string{}
+	if totalInput > 0 {
+		cacheShare := float64(s.Tokens.CacheReadTokens) / float64(totalInput) * 100
+		lines = append(lines, tokenField("Cache Share", fmt.Sprintf("%.1f%%", cacheShare)))
 	}
-	return renderBreakdownBar(s.ToolBreakdown)
+	if totalInput > 0 {
+		outputRatio := float64(s.Tokens.OutputTokens) / float64(totalInput) * 100
+		lines = append(lines, tokenField("Output Ratio", fmt.Sprintf("%.1f%%", outputRatio)))
+	}
+	if topModel, share := topModelSignal(s); topModel != "" {
+		lines = append(lines, tokenField("Top Model", fmt.Sprintf("%s (%0.1f%%)", topModel, share)))
+	}
+	if topTool := topBreakdownName(s.ToolBreakdown); topTool != "" {
+		lines = append(lines, tokenField("Top Tool", topTool))
+	}
+	if topCmd := topBreakdownName(s.BashBreakdown); topCmd != "" {
+		lines = append(lines, tokenField("Top Command", topCmd))
+	}
+	return lines
 }
 
-func renderBashSection(s *claude.SessionTokenSummary) []string {
-	if len(s.BashBreakdown) == 0 {
+func renderExecutionSection(s *claude.SessionTokenSummary) []string {
+	toolLines := renderRankedBreakdown("Tools", s.ToolBreakdown, "tool", 5)
+	cmdLines := renderRankedBreakdown("Commands", s.BashBreakdown, "$", 5)
+	if len(toolLines) == 0 && len(cmdLines) == 0 {
 		return nil
 	}
-	return renderBreakdownBar(s.BashBreakdown)
+	if len(toolLines) == 0 {
+		return cmdLines
+	}
+	if len(cmdLines) == 0 {
+		return toolLines
+	}
+	return append(append(toolLines, ""), cmdLines...)
 }
 
 func tokenField(label, value string) string {
@@ -502,14 +539,36 @@ type breakdownEntry struct {
 	calls int
 }
 
-func renderBreakdownBar(breakdown map[string]*claude.ToolStats) []string {
+func renderRankedBreakdown(title string, breakdown map[string]*claude.ToolStats, marker string, limit int) []string {
+	entries, totalCalls := breakdownEntries(breakdown)
+	if len(entries) == 0 {
+		return nil
+	}
+	entries = entries[:min(len(entries), limit)]
+
+	lines := []string{subtitleStyle.Render(title)}
+	for idx, e := range entries {
+		share := 0.0
+		if totalCalls > 0 {
+			share = float64(e.calls) / float64(totalCalls) * 100
+		}
+		lines = append(lines, fmt.Sprintf("  %d. %-2s %-14s %4.1f%%  %d calls",
+			idx+1,
+			marker,
+			truncate(e.name, 14),
+			share,
+			e.calls,
+		))
+	}
+	return lines
+}
+
+func breakdownEntries(breakdown map[string]*claude.ToolStats) ([]breakdownEntry, int) {
 	var entries []breakdownEntry
-	maxCalls := 0
+	totalCalls := 0
 	for name, stats := range breakdown {
 		entries = append(entries, breakdownEntry{name, stats.Calls})
-		if stats.Calls > maxCalls {
-			maxCalls = stats.Calls
-		}
+		totalCalls += stats.Calls
 	}
 	sort.Slice(entries, func(i, j int) bool {
 		if entries[i].calls != entries[j].calls {
@@ -517,35 +576,36 @@ func renderBreakdownBar(breakdown map[string]*claude.ToolStats) []string {
 		}
 		return entries[i].name < entries[j].name
 	})
+	return entries, totalCalls
+}
 
-	if len(entries) > 15 {
-		entries = entries[:15]
+func topModelSignal(s *claude.SessionTokenSummary) (string, float64) {
+	if len(s.ModelBreakdown) == 0 {
+		return "", 0
 	}
+	entries := make([]breakdownEntry, 0, len(s.ModelBreakdown))
+	total := int64(0)
+	for name, stats := range s.ModelBreakdown {
+		entries = append(entries, breakdownEntry{name: name, calls: int(stats.Tokens.Total())})
+		total += stats.Tokens.Total()
+	}
+	if total == 0 {
+		return "", 0
+	}
+	sort.Slice(entries, func(i, j int) bool {
+		if entries[i].calls != entries[j].calls {
+			return entries[i].calls > entries[j].calls
+		}
+		return entries[i].name < entries[j].name
+	})
+	share := float64(entries[0].calls) / float64(total) * 100
+	return entries[0].name, share
+}
 
-	maxNameLen := 0
-	for _, e := range entries {
-		if len(e.name) > maxNameLen {
-			maxNameLen = len(e.name)
-		}
+func topBreakdownName(breakdown map[string]*claude.ToolStats) string {
+	entries, _ := breakdownEntries(breakdown)
+	if len(entries) == 0 {
+		return ""
 	}
-	maxNameLen = min(maxNameLen, 16)
-
-	const maxBarWidth = 15
-	var lines []string
-	for _, e := range entries {
-		name := e.name
-		if len(name) > 16 {
-			name = name[:13] + "..."
-		}
-		padded := fmt.Sprintf("%-*s", maxNameLen, name)
-		barLen := 0
-		if maxCalls > 0 {
-			barLen = e.calls * maxBarWidth / maxCalls
-		}
-		barLen = max(barLen, 1)
-		bar := lipgloss.NewStyle().Foreground(colorCyan).Render(strings.Repeat("█", barLen))
-		count := dimStyle.Render(fmt.Sprintf(" %d", e.calls))
-		lines = append(lines, "  "+padded+" "+bar+count)
-	}
-	return lines
+	return entries[0].name
 }

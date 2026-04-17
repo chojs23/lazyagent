@@ -37,7 +37,7 @@ func (o *errorOverlay) update(now time.Time) {
 	}
 }
 
-func (o errorOverlay) view(width, height int) string {
+func (o errorOverlay) view(width int) string {
 	if !o.visible {
 		return ""
 	}
@@ -60,39 +60,18 @@ func (o errorOverlay) view(width, height int) string {
 }
 
 func renderOverlay(base string, width, height int, overlay string) string {
-	if overlay == "" {
-		return base
-	}
-
-	lines := strings.Split(base, "\n")
-	for len(lines) < height {
-		lines = append(lines, "")
-	}
-
-	overlayLines := strings.Split(overlay, "\n")
-	overlayWidth := lipgloss.Width(overlay)
-	overlayHeight := lipgloss.Height(overlay)
-	x := max(width-overlayWidth-2, 0)
-	y := max(height-overlayHeight-2, 0)
-
-	for i, overlayLine := range overlayLines {
-		row := y + i
-		if row < 0 || row >= len(lines) {
-			continue
-		}
-		baseLine := lines[row]
-		left := ansi.Cut(baseLine, 0, x)
-		right := ""
-		if x+overlayWidth < width {
-			right = ansi.Cut(baseLine, x+overlayWidth, width)
-		}
-		lines[row] = left + padVisibleRight(overlayLine, overlayWidth) + right
-	}
-
-	return strings.Join(lines, "\n")
+	return renderOverlayAt(base, width, height, overlay, func(overlayWidth, overlayHeight int) (int, int) {
+		return max(width-overlayWidth-2, 0), max(height-overlayHeight-2, 0)
+	})
 }
 
 func renderOverlayCentered(base string, width, height int, overlay string) string {
+	return renderOverlayAt(base, width, height, overlay, func(overlayWidth, overlayHeight int) (int, int) {
+		return max((width-overlayWidth)/2, 0), max((height-overlayHeight)/2, 0)
+	})
+}
+
+func renderOverlayAt(base string, width, height int, overlay string, position func(overlayWidth, overlayHeight int) (int, int)) string {
 	if overlay == "" {
 		return base
 	}
@@ -105,8 +84,7 @@ func renderOverlayCentered(base string, width, height int, overlay string) strin
 	overlayLines := strings.Split(overlay, "\n")
 	overlayWidth := lipgloss.Width(overlay)
 	overlayHeight := lipgloss.Height(overlay)
-	x := max((width-overlayWidth)/2, 0)
-	y := max((height-overlayHeight)/2, 0)
+	x, y := position(overlayWidth, overlayHeight)
 
 	for i, overlayLine := range overlayLines {
 		row := y + i

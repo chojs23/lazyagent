@@ -86,7 +86,7 @@ func TestRenderOverlayKeepsBaseOutsideModal(t *testing.T) {
 
 	var overlay errorOverlay
 	overlay.showAt("Toast title", "Toast body", time.Unix(100, 0))
-	got := renderOverlay(base, 80, 10, overlay.view(80, 10))
+	got := renderOverlay(base, 80, 10, overlay.view(80))
 
 	if !strings.Contains(got, "top line stays") {
 		t.Fatalf("overlay should keep top line: %q", got)
@@ -100,5 +100,42 @@ func TestRenderOverlayKeepsBaseOutsideModal(t *testing.T) {
 	}
 	if !strings.Contains(got, "bottom line stays") {
 		t.Fatalf("overlay should still preserve base content outside the toast: %q", got)
+	}
+}
+
+func TestRenderOverlayCenteredPlacesContentNearMiddle(t *testing.T) {
+	base := strings.Join([]string{
+		"top line stays",
+		strings.Repeat("a", 60),
+		strings.Repeat("b", 60),
+		strings.Repeat("c", 60),
+		strings.Repeat("d", 60),
+		strings.Repeat("e", 60),
+		strings.Repeat("f", 60),
+		"bottom line stays",
+	}, "\n")
+
+	overlay := strings.Join([]string{
+		"CENTER TITLE",
+		"CENTER BODY",
+	}, "\n")
+
+	got := renderOverlayCentered(base, 80, 10, overlay)
+	if !strings.Contains(got, "CENTER TITLE") || !strings.Contains(got, "CENTER BODY") {
+		t.Fatalf("centered overlay should render content: %q", got)
+	}
+	lines := strings.Split(got, "\n")
+	if len(lines) < 5 {
+		t.Fatalf("centered overlay output too short: %q", got)
+	}
+	if !strings.Contains(lines[0], "top line stays") {
+		t.Fatalf("centered overlay should preserve top content: %q", got)
+	}
+	if !strings.Contains(got, "bottom line stays") {
+		t.Fatalf("centered overlay should preserve bottom content: %q", got)
+	}
+	middle := strings.Join(lines[3:6], "\n")
+	if !strings.Contains(middle, "CENTER TITLE") {
+		t.Fatalf("centered overlay should place title near middle rows: %q", got)
 	}
 }
