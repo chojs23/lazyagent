@@ -3,6 +3,7 @@ package claude
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -18,10 +19,7 @@ func TestReadTranscriptTokens(t *testing.T) {
 		`{"type":"assistant","message":{"role":"assistant","model":"claude-sonnet-4-6-20250514","content":[{"type":"tool_use","id":"tu1","name":"Bash","input":{"command":"git status && ls -la"}},{"type":"tool_use","id":"tu2","name":"Read","input":{"file_path":"/tmp/x"}}],"usage":{"input_tokens":500,"output_tokens":200,"cache_read_input_tokens":1000,"cache_creation_input_tokens":0}},"sessionId":"test-1"}`,
 		`{"type":"assistant","message":{"role":"assistant","model":"claude-opus-4-6","content":[{"type":"tool_use","id":"tu3","name":"Edit","input":{"file_path":"/tmp/y","old_string":"a","new_string":"b"}}],"usage":{"input_tokens":300,"output_tokens":100,"cache_read_input_tokens":500,"cache_creation_input_tokens":0}},"sessionId":"test-1"}`,
 	}
-	content := ""
-	for _, l := range lines {
-		content += l + "\n"
-	}
+	content := strings.Join(lines, "\n") + "\n"
 	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -83,6 +81,44 @@ func TestReadTranscriptTokens(t *testing.T) {
 	}
 	if summary.BashBreakdown["ls"] == nil || summary.BashBreakdown["ls"].Calls != 1 {
 		t.Errorf("ls bash calls = %v, want 1", summary.BashBreakdown["ls"])
+	}
+}
+
+func TestReadTranscriptTokensDedupesStreamingMessageUpdates(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "session.jsonl")
+
+	lines := []string{
+		`{"type":"assistant","message":{"id":"msg-1","role":"assistant","model":"claude-sonnet-4-6","content":[{"type":"text","text":"partial"}],"usage":{"input_tokens":100,"output_tokens":20,"cache_read_input_tokens":30,"cache_creation_input_tokens":0}},"sessionId":"test-1"}`,
+		`{"type":"assistant","message":{"id":"msg-1","role":"assistant","model":"claude-sonnet-4-6","content":[{"type":"text","text":"final"}],"usage":{"input_tokens":140,"output_tokens":35,"cache_read_input_tokens":40,"cache_creation_input_tokens":5}},"sessionId":"test-1"}`,
+	}
+
+	if err := os.WriteFile(path, []byte(strings.Join(lines, "\n")+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	summary, err := ReadTranscriptTokens(path)
+	if err != nil {
+		t.Fatalf("ReadTranscriptTokens: %v", err)
+	}
+	if summary == nil {
+		t.Fatal("summary should not be nil")
+	}
+
+	if summary.APICalls != 1 {
+		t.Fatalf("APICalls = %d, want 1", summary.APICalls)
+	}
+	if summary.Tokens.InputTokens != 140 {
+		t.Fatalf("InputTokens = %d, want 140", summary.Tokens.InputTokens)
+	}
+	if summary.Tokens.OutputTokens != 35 {
+		t.Fatalf("OutputTokens = %d, want 35", summary.Tokens.OutputTokens)
+	}
+	if summary.Tokens.CacheReadTokens != 40 {
+		t.Fatalf("CacheReadTokens = %d, want 40", summary.Tokens.CacheReadTokens)
+	}
+	if summary.Tokens.CacheCreationTokens != 5 {
+		t.Fatalf("CacheCreationTokens = %d, want 5", summary.Tokens.CacheCreationTokens)
 	}
 }
 

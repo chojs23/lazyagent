@@ -24,6 +24,8 @@ type tokensOverlay struct {
 	err     string
 }
 
+var tokenEventPageSize = 2000
+
 func (t *tokensOverlay) toggle(session *model.Session, st *store.Store) {
 	if t.visible {
 		t.visible = false
@@ -97,100 +99,156 @@ func (t *tokensOverlay) loadFromEvents(session *model.Session, st *store.Store) 
 
 	ctx := context.Background()
 	q := st.Read()
-
-	events, err := q.ListEventsForSessionTree(ctx, session.ID, model.EventFilter{
-		Limit: 50000,
-	})
+	summary, err := readEventTokenSummary(ctx, q, session.ID)
 	if err != nil {
-		t.err = "Failed to load events"
+		t.err = "Failed to load events: " + err.Error()
 		return
 	}
-
-	summary := &claude.SessionTokenSummary{
-		ModelBreakdown: make(map[string]*claude.ModelStats),
-		ToolBreakdown:  make(map[string]*claude.ToolStats),
-		BashBreakdown:  make(map[string]*claude.ToolStats),
-	}
-
-	for _, ev := range events {
-		switch ev.Subtype {
-		case "MessageUpdated":
-			var p map[string]any
-			if err := json.Unmarshal([]byte(ev.Payload), &p); err != nil {
-				continue
-			}
-			role := jsonutil.GetString(p, "message_role")
-			if role != "assistant" {
-				continue
-			}
-
-			tokens := claude.TokenUsage{
-				InputTokens:         parseTokenInt(jsonutil.GetString(p, "tokens_input")),
-				OutputTokens:        parseTokenInt(jsonutil.GetString(p, "tokens_output")),
-				CacheReadTokens:     parseTokenInt(jsonutil.GetString(p, "tokens_cache_read")),
-				CacheCreationTokens: parseTokenInt(jsonutil.GetString(p, "tokens_cache_write")),
-			}
-
-			modelName := jsonutil.GetString(p, "model_id")
-			if modelName == "" {
-				modelName = "unknown"
-			}
-
-			cost := claude.CalculateCost(modelName, tokens)
-
-			summary.Tokens.Add(tokens)
-			summary.CostUSD += cost
-			summary.APICalls++
-
-			ms, ok := summary.ModelBreakdown[modelName]
-			if !ok {
-				ms = &claude.ModelStats{}
-				summary.ModelBreakdown[modelName] = ms
-			}
-			ms.Calls++
-			ms.Tokens.Add(tokens)
-			ms.CostUSD += cost
-
-		case "PreToolUse":
-			if ev.ToolName == "" {
-				continue
-			}
-			if !strings.HasPrefix(ev.ToolName, "mcp__") {
-				ts, ok := summary.ToolBreakdown[ev.ToolName]
-				if !ok {
-					ts = &claude.ToolStats{}
-					summary.ToolBreakdown[ev.ToolName] = ts
-				}
-				ts.Calls++
-			}
-
-			if ev.ToolName == "Bash" || ev.ToolName == "BashTool" {
-				var p map[string]any
-				if err := json.Unmarshal([]byte(ev.Payload), &p); err != nil {
-					continue
-				}
-				input := jsonutil.MapOrEmpty(p["tool_input"])
-				if len(input) == 0 {
-					input = jsonutil.MapOrEmpty(p["args"])
-				}
-				cmd := jsonutil.GetString(input, "command")
-				for _, name := range claude.ExtractCommandNames(cmd) {
-					bs, ok := summary.BashBreakdown[name]
-					if !ok {
-						bs = &claude.ToolStats{}
-						summary.BashBreakdown[name] = bs
-					}
-					bs.Calls++
-				}
-			}
-		}
-	}
-
-	if summary.APICalls == 0 {
+	if summary == nil || summary.APICalls == 0 {
 		t.err = "No token data available"
 		return
 	}
 	t.summary = summary
+}
+
+type eventTokenMessage struct {
+	modelName string
+	tokens    claude.TokenUsage
+}
+
+type eventTokenAggregator struct {
+	summary  *claude.SessionTokenSummary
+	messages map[string]eventTokenMessage
+}
+
+func newEventTokenAggregator() *eventTokenAggregator {
+	return &eventTokenAggregator{
+		summary: &claude.SessionTokenSummary{
+			ModelBreakdown: make(map[string]*claude.ModelStats),
+			ToolBreakdown:  make(map[string]*claude.ToolStats),
+			BashBreakdown:  make(map[string]*claude.ToolStats),
+		},
+		messages: make(map[string]eventTokenMessage),
+	}
+}
+
+func readEventTokenSummary(ctx context.Context, q *store.Queries, sessionID string) (*claude.SessionTokenSummary, error) {
+	agg := newEventTokenAggregator()
+	offset := 0
+
+	for {
+		events, err := q.ListEventsForSessionTree(ctx, sessionID, model.EventFilter{
+			Limit:  tokenEventPageSize,
+			Offset: offset,
+		})
+		if err != nil {
+			return nil, err
+		}
+		if len(events) == 0 {
+			break
+		}
+
+		for _, ev := range events {
+			agg.consume(ev)
+		}
+
+		offset += len(events)
+		if len(events) < tokenEventPageSize {
+			break
+		}
+	}
+
+	return agg.finalize(), nil
+}
+
+func (a *eventTokenAggregator) consume(ev model.Event) {
+	switch ev.Subtype {
+	case "MessageUpdated":
+		var p map[string]any
+		if err := json.Unmarshal([]byte(ev.Payload), &p); err != nil {
+			return
+		}
+		if jsonutil.GetString(p, "message_role") != "assistant" {
+			return
+		}
+
+		messageID := jsonutil.GetString(p, "message_id")
+		if messageID == "" {
+			messageID = fmt.Sprintf("event:%d", ev.ID)
+		}
+
+		modelName := jsonutil.GetString(p, "model_id")
+		if modelName == "" {
+			modelName = "unknown"
+		}
+
+		a.messages[messageID] = eventTokenMessage{
+			modelName: modelName,
+			tokens: claude.TokenUsage{
+				InputTokens:         parseTokenInt(jsonutil.GetString(p, "tokens_input")),
+				OutputTokens:        parseTokenInt(jsonutil.GetString(p, "tokens_output")),
+				CacheReadTokens:     parseTokenInt(jsonutil.GetString(p, "tokens_cache_read")),
+				CacheCreationTokens: parseTokenInt(jsonutil.GetString(p, "tokens_cache_write")),
+			},
+		}
+
+	case "PreToolUse":
+		if ev.ToolName == "" {
+			return
+		}
+		if !strings.HasPrefix(ev.ToolName, "mcp__") {
+			ts, ok := a.summary.ToolBreakdown[ev.ToolName]
+			if !ok {
+				ts = &claude.ToolStats{}
+				a.summary.ToolBreakdown[ev.ToolName] = ts
+			}
+			ts.Calls++
+		}
+
+		if ev.ToolName == "Bash" || ev.ToolName == "BashTool" {
+			var p map[string]any
+			if err := json.Unmarshal([]byte(ev.Payload), &p); err != nil {
+				return
+			}
+			input := jsonutil.MapOrEmpty(p["tool_input"])
+			if len(input) == 0 {
+				input = jsonutil.MapOrEmpty(p["args"])
+			}
+			cmd := jsonutil.GetString(input, "command")
+			for _, name := range claude.ExtractCommandNames(cmd) {
+				bs, ok := a.summary.BashBreakdown[name]
+				if !ok {
+					bs = &claude.ToolStats{}
+					a.summary.BashBreakdown[name] = bs
+				}
+				bs.Calls++
+			}
+		}
+	}
+}
+
+func (a *eventTokenAggregator) finalize() *claude.SessionTokenSummary {
+	for _, msg := range a.messages {
+		cost := claude.CalculateCost(msg.modelName, msg.tokens)
+
+		a.summary.Tokens.Add(msg.tokens)
+		a.summary.CostUSD += cost
+		a.summary.APICalls++
+
+		ms, ok := a.summary.ModelBreakdown[msg.modelName]
+		if !ok {
+			ms = &claude.ModelStats{}
+			a.summary.ModelBreakdown[msg.modelName] = ms
+		}
+		ms.Calls++
+		ms.Tokens.Add(msg.tokens)
+		ms.CostUSD += cost
+	}
+
+	if a.summary.APICalls == 0 {
+		return nil
+	}
+	return a.summary
 }
 
 func parseTokenInt(s string) int64 {
@@ -351,15 +409,16 @@ func renderColumnBlock(title string, body []string, width int) string {
 }
 
 func renderOverviewSection(s *claude.SessionTokenSummary) []string {
+	totalInput := s.Tokens.InputTokens + s.Tokens.CacheReadTokens + s.Tokens.CacheCreationTokens
 	lines := []string{
 		tokenField("Cost", formatCost(s.CostUSD)),
-		tokenField("API Calls", fmt.Sprintf("%d", s.APICalls)),
-		tokenField("Input", formatTokenCount(s.Tokens.InputTokens)),
+		tokenField("Model Calls", fmt.Sprintf("%d", s.APICalls)),
+		tokenField("Direct Input", formatTokenCount(s.Tokens.InputTokens)),
+		tokenField("Total Input", formatTokenCount(totalInput)),
 		tokenField("Output", formatTokenCount(s.Tokens.OutputTokens)),
 		tokenField("Cache Read", formatTokenCount(s.Tokens.CacheReadTokens)),
 		tokenField("Cache Write", formatTokenCount(s.Tokens.CacheCreationTokens)),
 	}
-	totalInput := s.Tokens.InputTokens + s.Tokens.CacheReadTokens + s.Tokens.CacheCreationTokens
 	if totalInput > 0 {
 		hitRate := float64(s.Tokens.CacheReadTokens) / float64(totalInput) * 100
 		lines = append(lines, tokenField("Cache Hit", fmt.Sprintf("%.1f%%", hitRate)))
@@ -390,7 +449,7 @@ func renderModelSection(s *claude.SessionTokenSummary) []string {
 	for _, m := range models {
 		inTotal := m.stats.Tokens.InputTokens + m.stats.Tokens.CacheReadTokens + m.stats.Tokens.CacheCreationTokens
 		lines = append(lines, fmt.Sprintf("  %s", m.name))
-		lines = append(lines, fmt.Sprintf("    %s  calls:%d  in:%s  out:%s",
+		lines = append(lines, fmt.Sprintf("    %s  calls:%d  total in:%s  out:%s",
 			formatCost(m.stats.CostUSD),
 			m.stats.Calls,
 			formatTokenCount(inTotal),

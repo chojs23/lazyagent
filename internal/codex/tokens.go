@@ -28,7 +28,7 @@ func ReadTranscriptTokens(transcriptPath string) (*claude.SessionTokenSummary, e
 		BashBreakdown:  make(map[string]*claude.ToolStats),
 	}
 
-	var lastTotalUsage map[string]any
+	var accountedTokens claude.TokenUsage
 	modelName := "unknown"
 
 	scanner := bufio.NewScanner(f)
@@ -52,12 +52,7 @@ func ReadTranscriptTokens(transcriptPath string) (*claude.SessionTokenSummary, e
 		case "event_msg":
 			payloadType := jsonutil.String(payload["type"])
 			if payloadType == "token_count" {
-				info := jsonutil.Map(payload["info"])
-				if info != nil {
-					if total := jsonutil.Map(info["total_token_usage"]); total != nil {
-						lastTotalUsage = total
-					}
-				}
+				applyCodexTokenCount(summary, jsonutil.Map(payload["info"]), modelName, &accountedTokens)
 			}
 
 		case "response_item":
@@ -67,7 +62,6 @@ func ReadTranscriptTokens(transcriptPath string) (*claude.SessionTokenSummary, e
 				if toolName == "" {
 					continue
 				}
-				summary.APICalls++
 
 				if !strings.HasPrefix(toolName, "mcp__") {
 					ts, ok := summary.ToolBreakdown[toolName]
@@ -99,30 +93,77 @@ func ReadTranscriptTokens(transcriptPath string) (*claude.SessionTokenSummary, e
 		return nil, fmt.Errorf("read transcript: %w", err)
 	}
 
-	// Use the last cumulative token_count for totals.
-	if lastTotalUsage != nil {
-		summary.Tokens = claude.TokenUsage{
-			InputTokens:     int64Val(lastTotalUsage, "input_tokens"),
-			OutputTokens:    int64Val(lastTotalUsage, "output_tokens"),
-			CacheReadTokens: int64Val(lastTotalUsage, "cached_input_tokens"),
-		}
-
-		cost := claude.CalculateCost(modelName, summary.Tokens)
-		summary.CostUSD = cost
-
-		ms := &claude.ModelStats{
-			Calls:   1,
-			Tokens:  summary.Tokens,
-			CostUSD: cost,
-		}
-		summary.ModelBreakdown[modelName] = ms
-	}
-
 	if summary.Tokens.Total() == 0 && summary.APICalls == 0 {
 		return nil, nil
 	}
 
 	return summary, nil
+}
+
+func applyCodexTokenCount(summary *claude.SessionTokenSummary, info map[string]any, modelName string, accountedTokens *claude.TokenUsage) {
+	if len(info) == 0 {
+		return
+	}
+
+	if total := readCodexTokenUsage(jsonutil.Map(info["total_token_usage"])); total.Total() > 0 {
+		delta := codexTokenDelta(*accountedTokens, total)
+		if delta.Total() > 0 {
+			addCodexTokenUsage(summary, modelName, delta)
+			accountedTokens.Add(delta)
+		}
+		return
+	}
+
+	if last := readCodexTokenUsage(jsonutil.Map(info["last_token_usage"])); last.Total() > 0 {
+		addCodexTokenUsage(summary, modelName, last)
+		accountedTokens.Add(last)
+	}
+}
+
+func addCodexTokenUsage(summary *claude.SessionTokenSummary, modelName string, tokens claude.TokenUsage) {
+	if modelName == "" {
+		modelName = "unknown"
+	}
+
+	cost := claude.CalculateCost(modelName, tokens)
+	summary.Tokens.Add(tokens)
+	summary.CostUSD += cost
+	summary.APICalls++
+
+	ms, ok := summary.ModelBreakdown[modelName]
+	if !ok {
+		ms = &claude.ModelStats{}
+		summary.ModelBreakdown[modelName] = ms
+	}
+	ms.Calls++
+	ms.Tokens.Add(tokens)
+	ms.CostUSD += cost
+}
+
+func readCodexTokenUsage(m map[string]any) claude.TokenUsage {
+	if len(m) == 0 {
+		return claude.TokenUsage{}
+	}
+	return claude.TokenUsage{
+		InputTokens:     int64Val(m, "input_tokens"),
+		OutputTokens:    int64Val(m, "output_tokens"),
+		CacheReadTokens: int64Val(m, "cached_input_tokens"),
+	}
+}
+
+func codexTokenDelta(previous, current claude.TokenUsage) claude.TokenUsage {
+	return claude.TokenUsage{
+		InputTokens:     nonNegativeDelta(previous.InputTokens, current.InputTokens),
+		OutputTokens:    nonNegativeDelta(previous.OutputTokens, current.OutputTokens),
+		CacheReadTokens: nonNegativeDelta(previous.CacheReadTokens, current.CacheReadTokens),
+	}
+}
+
+func nonNegativeDelta(previous, current int64) int64 {
+	if current <= previous {
+		return 0
+	}
+	return current - previous
 }
 
 // extractCodexCommand extracts the command string from a shell_command
@@ -163,4 +204,3 @@ func int64Val(m map[string]any, key string) int64 {
 		return 0
 	}
 }
-
