@@ -8,6 +8,10 @@ The TUI is built for day to day observability. You can see which session belongs
 
 It also helps you check whether each agent is doing the work that fits its role, so it is easier to spot when a run goes off track.
 
+<img alt="lazyagent" src="./docs/usage_overlay.png" />
+
+You can also check token usage breakdowns for each session, so you can see how many tokens were spent on the model, how many were saved by cache reuse, and how many were spent on cache creation.
+
 ## Features
 
 - **Multi-runtime support** -- Support Claude, Codex, and OpenCode sessions
@@ -191,6 +195,7 @@ Main keys:
 - `enter`, `space` select the current item
 - `/` opens search
 - `t`, `shift+t` cycles event type filters
+- `b` opens the token/tool usage overlay for the selected session
 - `a` clears the current agent filter when the agent pane is focused
 - `d` deletes the selected project or session from the projects pane
 - `D` clears events for the selected session tree
@@ -224,6 +229,20 @@ Project grouping is automatic. `lazyagent` first tries to match sessions by work
 - **Type filter** -- Press `t` to cycle through: All, User, Message, Code, System, Tool, Session.
 - **Agent filter** -- Select an agent in the agents pane to show only that agent's events. Press `a` to clear the filter and show all agents again.
 - **Text search** -- Press `/` and type a pattern to search event payloads.
+
+### Token usage overlay
+
+Press `b` on a selected session to open the token usage overlay.
+
+- **Model Calls** -- Counted model usage events for the selected runtime.
+- **Direct Input** -- Non-cache input tokens only.
+- **Total Input** -- `Direct Input + Cache Read + Cache Write`.
+- **Cache Read** -- Input tokens served from cache reuse.
+- **Cache Write** -- Tokens spent creating cacheable prompt state.
+- **Model `total in`** -- The per-model version of `Total Input`, so it includes direct input plus cache tokens.
+
+- **Tool Usage** -- Which tools were called in the session and how many times each tool ran.
+- **Shell Commands** -- Which shell commands were detected from Bash or shell tool invocations and how many times each command appeared.
 
 ### Event types
 
@@ -321,3 +340,7 @@ The TUI refresh interval defaults to 1 second.
 Bug reports, feature requests, and pull requests are all welcome.
 
 Please see [CONTRIBUTING.md](./CONTRIBUTING.md) for contribution guidance.
+
+## License
+
+MIT
