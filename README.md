@@ -23,6 +23,18 @@ You can also check token usage breakdowns for each session, so you can see how m
 
 ## Installation
 
+### NPM
+
+```bash
+npm install -g @chojs23/lazyagent
+```
+
+Or run without installing:
+
+```bash
+npx @chojs23/lazyagent
+```
+
 ### Homebrew
 
 Install from the Homebrew tap with:

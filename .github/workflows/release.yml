@@ -68,3 +68,39 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           HOMEBREW_TAP_TOKEN: ${{ env.HOMEBREW_TAP_TOKEN }}
+
+  npm-publish:
+    needs: release
+    runs-on: ubuntu-latest
+    # Runs only for real tag pushes, so manual workflow_dispatch on a
+    # branch will not try to publish. Assumes the tag that triggered this
+    # workflow already exists as a GitHub Release, since the postinstall
+    # script fetches binaries from that release.
+    if: startsWith(github.ref, 'refs/tags/v')
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          registry-url: "https://registry.npmjs.org"
+
+      - name: Sync package.json version to tag
+        working-directory: npm
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          node -e '
+            const fs = require("node:fs");
+            const pkg = JSON.parse(fs.readFileSync("package.json", "utf8"));
+            pkg.version = process.argv[1];
+            fs.writeFileSync("package.json", JSON.stringify(pkg, null, 2) + "\n");
+          ' "$version"
+          echo "published version: $version"
+
+      - name: Publish to npm
+        working-directory: npm
+        run: npm publish
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

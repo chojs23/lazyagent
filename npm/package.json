@@ -1,0 +1,49 @@
+{
+  "name": "@chojs23/lazyagent",
+  "version": "0.3.0",
+  "description": "Observe your AI agents and sessions from the terminal",
+  "bin": {
+    "lazyagent": "bin/lazyagent.js"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "scripts": {
+    "postinstall": "node install.js"
+  },
+  "files": [
+    "bin/",
+    "install.js",
+    "README.md",
+    "LICENSE"
+  ],
+  "os": [
+    "darwin",
+    "linux",
+    "win32"
+  ],
+  "cpu": [
+    "x64",
+    "arm64"
+  ],
+  "engines": {
+    "node": ">=16"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/chojs23/lazyagent.git"
+  },
+  "homepage": "https://github.com/chojs23/lazyagent",
+  "bugs": {
+    "url": "https://github.com/chojs23/lazyagent/issues"
+  },
+  "keywords": [
+    "tui",
+    "observability",
+    "claude",
+    "codex",
+    "opencode",
+    "agents"
+  ],
+  "license": "MIT"
+}

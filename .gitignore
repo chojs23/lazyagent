@@ -5,3 +5,6 @@ result
 *.db-wal
 *.db-shm
 plugins/opencode/node_modules/
+npm/node_modules/
+npm/vendor/
+npm/*.tgz
