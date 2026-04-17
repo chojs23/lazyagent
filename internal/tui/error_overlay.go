@@ -92,6 +92,39 @@ func renderOverlay(base string, width, height int, overlay string) string {
 	return strings.Join(lines, "\n")
 }
 
+func renderOverlayCentered(base string, width, height int, overlay string) string {
+	if overlay == "" {
+		return base
+	}
+
+	lines := strings.Split(base, "\n")
+	for len(lines) < height {
+		lines = append(lines, "")
+	}
+
+	overlayLines := strings.Split(overlay, "\n")
+	overlayWidth := lipgloss.Width(overlay)
+	overlayHeight := lipgloss.Height(overlay)
+	x := max((width-overlayWidth)/2, 0)
+	y := max((height-overlayHeight)/2, 0)
+
+	for i, overlayLine := range overlayLines {
+		row := y + i
+		if row < 0 || row >= len(lines) {
+			continue
+		}
+		baseLine := lines[row]
+		left := ansi.Cut(baseLine, 0, x)
+		right := ""
+		if x+overlayWidth < width {
+			right = ansi.Cut(baseLine, x+overlayWidth, width)
+		}
+		lines[row] = left + padVisibleRight(overlayLine, overlayWidth) + right
+	}
+
+	return strings.Join(lines, "\n")
+}
+
 func padVisibleRight(s string, width int) string {
 	short := width - ansi.StringWidth(s)
 	if short <= 0 {

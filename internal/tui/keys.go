@@ -19,6 +19,7 @@ type keyMap struct {
 	Delete       key.Binding
 	ClearEvt     key.Binding
 	DebugLog     key.Binding
+	TokenUsage   key.Binding
 	Help         key.Binding
 	Quit         key.Binding
 }
@@ -41,18 +42,19 @@ func defaultKeyMap() keyMap {
 		Delete:       key.NewBinding(key.WithKeys("d"), key.WithHelp("d", "delete")),
 		ClearEvt:     key.NewBinding(key.WithKeys("D"), key.WithHelp("D", "clear events")),
 		DebugLog:     key.NewBinding(key.WithKeys("`"), key.WithHelp("`", "debug log")),
+		TokenUsage:   key.NewBinding(key.WithKeys("b"), key.WithHelp("b", "token usage")),
 		Help:         key.NewBinding(key.WithKeys("?"), key.WithHelp("?", "help")),
 		Quit:         key.NewBinding(key.WithKeys("q", "ctrl+c"), key.WithHelp("q", "quit")),
 	}
 }
 
 func (k keyMap) ShortHelp() []key.Binding {
-	return []key.Binding{k.NextPane, k.Search, k.CycleType, k.ToggleAuto, k.Refresh, k.Quit}
+	return []key.Binding{k.NextPane, k.Search, k.CycleType, k.TokenUsage, k.Refresh, k.Quit}
 }
 
 func (k keyMap) FullHelp() [][]key.Binding {
 	return [][]key.Binding{
 		{k.NextPane, k.PrevPane, k.PaneProjects, k.PaneSession, k.PaneAgents, k.PaneEvents, k.PaneDetail},
-		{k.Search, k.CycleType, k.ToggleAuto, k.AgentAll, k.Refresh, k.Quit},
+		{k.Search, k.CycleType, k.ToggleAuto, k.AgentAll, k.TokenUsage, k.Refresh, k.Quit},
 	}
 }

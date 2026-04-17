@@ -67,6 +67,7 @@ type Model struct {
 
 	errorOverlay errorOverlay
 	debug        *debugOverlay
+	tokens       tokensOverlay
 
 	allProjects []model.Project
 	allSessions []model.Session
@@ -157,13 +158,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, spinnerTickCmd()
 
 	case tea.MouseClickMsg:
-		if m.debug.isVisible() || m.errorOverlay.visible {
+		if m.tokens.visible || m.debug.isVisible() || m.errorOverlay.visible {
 			return m, nil
 		}
 		return m.handleMouseClick(msg)
 
 	case tea.MouseWheelMsg:
-		if m.debug.isVisible() || m.errorOverlay.visible {
+		if m.tokens.visible || m.debug.isVisible() || m.errorOverlay.visible {
 			return m, nil
 		}
 		return m.handleMouseWheel(msg)
@@ -173,6 +174,30 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	// (primarily key events) to the search handler.
 	if m.filter.searchMode {
 		return m.updateSearch(msg)
+	}
+
+	// When the tokens overlay is open, capture keys for its navigation.
+	if m.tokens.visible {
+		if msg, ok := msg.(tea.KeyMsg); ok {
+			switch msg.String() {
+			case "j", "down":
+				m.tokens.scrollDown(1, m.width, m.height)
+				return m, nil
+			case "k", "up":
+				m.tokens.scrollUp(1)
+				return m, nil
+			case "ctrl+d":
+				m.tokens.halfPageDown(m.width, m.height)
+				return m, nil
+			case "ctrl+u":
+				m.tokens.halfPageUp(m.width, m.height)
+				return m, nil
+			case "b", "esc", "q":
+				m.tokens.close()
+				return m, nil
+			}
+			return m, nil
+		}
 	}
 
 	// When the debug overlay is open, capture keys for its navigation
@@ -292,6 +317,10 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 	case key.Matches(msg, m.keys.DebugLog):
 		m.debug.toggle()
+		return m, nil
+	case key.Matches(msg, m.keys.TokenUsage):
+		session := m.selectedSessionSummary()
+		m.tokens.toggle(session, m.store)
 		return m, nil
 	case key.Matches(msg, m.keys.Delete):
 		return m.handleDelete()
@@ -765,6 +794,9 @@ func (m Model) View() tea.View {
 	}
 	if m.errorOverlay.visible {
 		full = renderOverlay(full, m.width, m.height, m.errorOverlay.view(m.width, m.height))
+	}
+	if m.tokens.visible {
+		full = m.tokens.viewFullScreen(m.width, m.height)
 	}
 	if lipgloss.Height(full) > m.height {
 		full = lipgloss.NewStyle().MaxHeight(m.height).Render(full)
