@@ -32,6 +32,44 @@ func newDetail() detailModel {
 	return detailModel{viewport: vp, agents: map[string]*model.Agent{}}
 }
 
+type detailRenderContext struct {
+	payload      map[string]any
+	input        map[string]any
+	response     string
+	expand       bool
+	fieldStyle   lipgloss.Style
+	contentStyle lipgloss.Style
+}
+
+func (c detailRenderContext) get(key string) string {
+	if v := jsonutil.GetString(c.input, key); v != "" {
+		return v
+	}
+	return jsonutil.GetString(c.payload, key)
+}
+
+func (c detailRenderContext) field(label, value string) string {
+	if value == "" {
+		return ""
+	}
+	return c.fieldStyle.Render(label+":") + " " + c.contentStyle.Render(value)
+}
+
+func (c detailRenderContext) block(label, value string) string {
+	if value == "" {
+		return ""
+	}
+	lines := strings.Split(value, "\n")
+	totalLines := len(lines)
+	if !c.expand && totalLines > 20 {
+		lines = lines[:20]
+		return c.fieldStyle.Render(label+fmt.Sprintf(" (%d lines):", totalLines)) + "\n" +
+			c.contentStyle.Render(strings.Join(lines, "\n")) + "\n" +
+			dimStyle.Render(fmt.Sprintf("  ... (%d more lines, e to expand)", totalLines-20))
+	}
+	return c.fieldStyle.Render(label+":") + "\n" + c.contentStyle.Render(strings.Join(lines, "\n"))
+}
+
 func (d *detailModel) setEvent(ev *model.Event, agents []model.Agent) {
 	sameEvent := ev != nil && ev.ID == d.eventID
 	d.event = ev
@@ -141,288 +179,266 @@ func (d *detailModel) renderToolDetail(ev *model.Event) string {
 	if len(input) == 0 {
 		input = jsonutil.MapOrEmpty(payload["args"])
 	}
-	response := prettyJSON(jsonutil.GetString(payload, "tool_response"))
-
-	// merge: prefer input fields, fall back to top-level payload
-	get := func(key string) string {
-		if v := jsonutil.GetString(input, key); v != "" {
-			return v
-		}
-		return jsonutil.GetString(payload, key)
+	ctx := detailRenderContext{
+		payload:      payload,
+		input:        input,
+		response:     prettyJSON(jsonutil.GetString(payload, "tool_response")),
+		expand:       d.expandContent,
+		fieldStyle:   lipgloss.NewStyle().Foreground(colorCyan).Bold(true),
+		contentStyle: lipgloss.NewStyle().Foreground(colorDimWhite),
 	}
 
-	fieldStyle := lipgloss.NewStyle().Foreground(colorCyan).Bold(true)
-	contentStyle := lipgloss.NewStyle().Foreground(colorDimWhite)
-
-	field := func(label, value string) string {
-		if value == "" {
-			return ""
-		}
-		return fieldStyle.Render(label+":") + " " + contentStyle.Render(value)
+	if body, handled := d.renderSubtypeDetail(ev, ctx); handled {
+		return body
+	}
+	if body, handled := d.renderKnownToolDetail(ev, ctx); handled {
+		return body
 	}
 
-	expand := d.expandContent
-	block := func(label, value string) string {
-		if value == "" {
-			return ""
+	for k, v := range ctx.input {
+		if _, exists := ctx.payload[k]; !exists {
+			ctx.payload[k] = v
 		}
-		lines := strings.Split(value, "\n")
-		totalLines := len(lines)
-		if !expand && totalLines > 20 {
-			lines = lines[:20]
-			return fieldStyle.Render(label+fmt.Sprintf(" (%d lines):", totalLines)) + "\n" +
-				contentStyle.Render(strings.Join(lines, "\n")) + "\n" +
-				dimStyle.Render(fmt.Sprintf("  ... (%d more lines, e to expand)", totalLines-20))
-		}
-		return fieldStyle.Render(label+":") + "\n" + contentStyle.Render(strings.Join(lines, "\n"))
 	}
+	return d.renderGenericDetail(ctx.payload)
+}
 
-	// non-tool events: render by subtype
+func (d *detailModel) renderSubtypeDetail(ev *model.Event, ctx detailRenderContext) (string, bool) {
 	switch ev.Subtype {
 	case "UserPromptSubmit":
 		return joinNonEmpty("\n",
-			field("Permission", get("permission_mode")),
-			block("Prompt", get("prompt")),
-		)
+			ctx.field("Permission", ctx.get("permission_mode")),
+			ctx.block("Prompt", ctx.get("prompt")),
+		), true
 	case "SessionStart":
 		return joinNonEmpty("\n",
-			field("Model", get("model")),
-			field("Source", get("source")),
-			field("CWD", get("cwd")),
-		)
+			ctx.field("Model", ctx.get("model")),
+			ctx.field("Source", ctx.get("source")),
+			ctx.field("CWD", ctx.get("cwd")),
+		), true
 	case "SessionEnd":
-		return joinNonEmpty("\n",
-			field("Reason", get("reason")),
-		)
+		return joinNonEmpty("\n", ctx.field("Reason", ctx.get("reason"))), true
 	case "Stop":
 		return joinNonEmpty("\n",
-			field("Permission", get("permission_mode")),
-			block("Last Message", get("last_assistant_message")),
-		)
+			ctx.field("Permission", ctx.get("permission_mode")),
+			ctx.block("Last Message", ctx.get("last_assistant_message")),
+		), true
 	case "SubagentStop":
 		return joinNonEmpty("\n",
-			field("Agent Type", get("agent_type")),
-			field("Permission", get("permission_mode")),
-			block("Last Message", get("last_assistant_message")),
-		)
+			ctx.field("Agent Type", ctx.get("agent_type")),
+			ctx.field("Permission", ctx.get("permission_mode")),
+			ctx.block("Last Message", ctx.get("last_assistant_message")),
+		), true
 	case "Notification":
 		return joinNonEmpty("\n",
-			field("Type", get("notification_type")),
-			field("Permission", get("permission")),
-			field("Message", get("message")),
-		)
+			ctx.field("Type", ctx.get("notification_type")),
+			ctx.field("Permission", ctx.get("permission")),
+			ctx.field("Message", ctx.get("message")),
+		), true
 	case "SessionStatus":
 		return joinNonEmpty("\n",
-			field("Status", get("status_type")),
-			field("Retry Attempt", get("retry_attempt")),
-			field("Retry Message", get("retry_message")),
-		)
+			ctx.field("Status", ctx.get("status_type")),
+			ctx.field("Retry Attempt", ctx.get("retry_attempt")),
+			ctx.field("Retry Message", ctx.get("retry_message")),
+		), true
 	case "SessionDiff":
-		header := joinNonEmpty("\n",
-			field("Files Changed", get("diff_file_count")),
-			field("Additions", get("diff_additions")),
-			field("Deletions", get("diff_deletions")),
-		)
-		// New OpenCode events may omit `diff_files` entirely because the ingest
-		// plugin now keeps only summary counts for `session.diff`. Older stored
-		// rows can still include per-file patches, so we render them when present
-		// and otherwise fall back to the summary header above.
-		if filesRaw, ok := payload["diff_files"]; ok {
-			if files, ok := filesRaw.([]any); ok {
-				var patches []string
-				for _, f := range files {
-					fm, _ := f.(map[string]any)
-					if fm == nil {
-						continue
-					}
-					filePath := jsonutil.GetString(fm, "file")
-					patch := jsonutil.GetString(fm, "patch")
-					if patch != "" {
-						patches = append(patches, d.renderPatchBlock(filePath, patch, expand))
-					} else if filePath != "" {
-						patches = append(patches, field("File", filePath))
-					}
-				}
-				if len(patches) > 0 {
-					return header + "\n" + strings.Join(patches, "\n")
-				}
-			}
-		}
-		return header
+		return d.renderSessionDiffDetail(ctx), true
 	case "PermissionReply":
-		return joinNonEmpty("\n",
-			field("Reply", get("reply")),
-		)
+		return joinNonEmpty("\n", ctx.field("Reply", ctx.get("reply"))), true
 	case "TodoUpdate":
 		return joinNonEmpty("\n",
-			field("Count", get("todo_count")),
-			block("Todos", get("todos")),
-		)
+			ctx.field("Count", ctx.get("todo_count")),
+			ctx.block("Todos", ctx.get("todos")),
+		), true
 	case "CommandExecuted":
 		return joinNonEmpty("\n",
-			field("Command", get("command_name")),
-			field("Arguments", get("command_args")),
-		)
+			ctx.field("Command", ctx.get("command_name")),
+			ctx.field("Arguments", ctx.get("command_args")),
+		), true
 	case "FileEdited":
-		return joinNonEmpty("\n",
-			field("File", get("file")),
-		)
+		return joinNonEmpty("\n", ctx.field("File", ctx.get("file"))), true
 	case "MessageUpdated":
 		return joinNonEmpty("\n",
-			field("Role", get("message_role")),
-			field("Model", get("model_id")),
-			field("Agent", get("agent_name")),
-			field("Finish", get("finish_reason")),
-			field("Cost", get("cost")),
-			field("Input Tokens", get("tokens_input")),
-			field("Output Tokens", get("tokens_output")),
-			field("Reasoning Tokens", get("tokens_reasoning")),
-			field("Cache Read", get("tokens_cache_read")),
-			field("Cache Write", get("tokens_cache_write")),
-			field("Error", get("error_name")),
-			field("Error Message", get("error_message")),
-		)
+			ctx.field("Role", ctx.get("message_role")),
+			ctx.field("Model", ctx.get("model_id")),
+			ctx.field("Agent", ctx.get("agent_name")),
+			ctx.field("Finish", ctx.get("finish_reason")),
+			ctx.field("Cost", ctx.get("cost")),
+			ctx.field("Input Tokens", ctx.get("tokens_input")),
+			ctx.field("Output Tokens", ctx.get("tokens_output")),
+			ctx.field("Reasoning Tokens", ctx.get("tokens_reasoning")),
+			ctx.field("Cache Read", ctx.get("tokens_cache_read")),
+			ctx.field("Cache Write", ctx.get("tokens_cache_write")),
+			ctx.field("Error", ctx.get("error_name")),
+			ctx.field("Error Message", ctx.get("error_message")),
+		), true
 	case "PartUpdated":
-		partType := get("part_type")
-		switch partType {
-		case "text":
-			return joinNonEmpty("\n",
-				field("Part", "text"),
-				block("Content", get("text")),
-			)
-		case "reasoning":
-			return joinNonEmpty("\n",
-				field("Part", "reasoning"),
-				block("Content", get("text")),
-			)
-		case "tool":
-			return joinNonEmpty("\n",
-				field("Part", "tool"),
-				field("Tool", get("tool_name")),
-				field("Call ID", get("call_id")),
-				field("Status", get("tool_status")),
-				field("Title", get("tool_title")),
-				field("Error", get("tool_error")),
-			)
-		case "step-finish":
-			return joinNonEmpty("\n",
-				field("Part", "step-finish"),
-				field("Reason", get("finish_reason")),
-				field("Cost", get("cost")),
-				field("Input Tokens", get("tokens_input")),
-				field("Output Tokens", get("tokens_output")),
-				field("Reasoning Tokens", get("tokens_reasoning")),
-				field("Cache Read", get("tokens_cache_read")),
-				field("Cache Write", get("tokens_cache_write")),
-			)
-		default:
-			return field("Part", partType)
+		return d.renderPartUpdatedDetail(ctx), true
+	default:
+		return "", false
+	}
+}
+
+func (d *detailModel) renderSessionDiffDetail(ctx detailRenderContext) string {
+	header := joinNonEmpty("\n",
+		ctx.field("Files Changed", ctx.get("diff_file_count")),
+		ctx.field("Additions", ctx.get("diff_additions")),
+		ctx.field("Deletions", ctx.get("diff_deletions")),
+	)
+	if filesRaw, ok := ctx.payload["diff_files"]; ok {
+		if files, ok := filesRaw.([]any); ok {
+			var patches []string
+			for _, f := range files {
+				fm, _ := f.(map[string]any)
+				if fm == nil {
+					continue
+				}
+				filePath := jsonutil.GetString(fm, "file")
+				patch := jsonutil.GetString(fm, "patch")
+				if patch != "" {
+					patches = append(patches, d.renderPatchBlock(filePath, patch, ctx.expand))
+				} else if filePath != "" {
+					patches = append(patches, ctx.field("File", filePath))
+				}
+			}
+			if len(patches) > 0 {
+				return header + "\n" + strings.Join(patches, "\n")
+			}
 		}
 	}
+	return header
+}
 
-	// tool events: render by tool name
+func (d *detailModel) renderPartUpdatedDetail(ctx detailRenderContext) string {
+	partType := ctx.get("part_type")
+	switch partType {
+	case "text":
+		return joinNonEmpty("\n",
+			ctx.field("Part", "text"),
+			ctx.block("Content", ctx.get("text")),
+		)
+	case "reasoning":
+		return joinNonEmpty("\n",
+			ctx.field("Part", "reasoning"),
+			ctx.block("Content", ctx.get("text")),
+		)
+	case "tool":
+		return joinNonEmpty("\n",
+			ctx.field("Part", "tool"),
+			ctx.field("Tool", ctx.get("tool_name")),
+			ctx.field("Call ID", ctx.get("call_id")),
+			ctx.field("Status", ctx.get("tool_status")),
+			ctx.field("Title", ctx.get("tool_title")),
+			ctx.field("Error", ctx.get("tool_error")),
+		)
+	case "step-finish":
+		return joinNonEmpty("\n",
+			ctx.field("Part", "step-finish"),
+			ctx.field("Reason", ctx.get("finish_reason")),
+			ctx.field("Cost", ctx.get("cost")),
+			ctx.field("Input Tokens", ctx.get("tokens_input")),
+			ctx.field("Output Tokens", ctx.get("tokens_output")),
+			ctx.field("Reasoning Tokens", ctx.get("tokens_reasoning")),
+			ctx.field("Cache Read", ctx.get("tokens_cache_read")),
+			ctx.field("Cache Write", ctx.get("tokens_cache_write")),
+		)
+	default:
+		return ctx.field("Part", partType)
+	}
+}
+
+func (d *detailModel) renderKnownToolDetail(ev *model.Event, ctx detailRenderContext) (string, bool) {
 	switch ev.ToolName {
 	case "Bash":
 		return joinNonEmpty("\n",
-			field("Command", get("command")),
-			field("Description", get("description")),
-			field("CWD", get("cwd")),
-			field("Timeout", get("timeout")),
-			block("Output", textutil.FirstNonEmpty(response, get("stdout"), get("result"), get("output"))),
-			blockIfPresent("Stderr", get("stderr"), fieldStyle, contentStyle),
-		)
-
+			ctx.field("Command", ctx.get("command")),
+			ctx.field("Description", ctx.get("description")),
+			ctx.field("CWD", ctx.get("cwd")),
+			ctx.field("Timeout", ctx.get("timeout")),
+			ctx.block("Output", textutil.FirstNonEmpty(ctx.response, ctx.get("stdout"), ctx.get("result"), ctx.get("output"))),
+			blockIfPresent("Stderr", ctx.get("stderr"), ctx.fieldStyle, ctx.contentStyle),
+		), true
 	case "Read":
 		rangeStr := ""
-		if off := get("offset"); off != "" {
+		if off := ctx.get("offset"); off != "" {
 			rangeStr = "offset:" + off
-			if lim := get("limit"); lim != "" {
+			if lim := ctx.get("limit"); lim != "" {
 				rangeStr += " limit:" + lim
 			}
 		}
 		return joinNonEmpty("\n",
-			field("File", get("file_path")),
-			field("Range", rangeStr),
-			block("Content", textutil.FirstNonEmpty(response, get("content"))),
-		)
-
+			ctx.field("File", ctx.get("file_path")),
+			ctx.field("Range", rangeStr),
+			ctx.block("Content", textutil.FirstNonEmpty(ctx.response, ctx.get("content"))),
+		), true
 	case "Edit":
-		filePath := textutil.FirstNonEmpty(get("file_path"), get("filePath"))
-		oldStr := textutil.FirstNonEmpty(get("old_string"), get("oldString"))
-		newStr := textutil.FirstNonEmpty(get("new_string"), get("newString"))
-
-		// OpenCode PostToolUse: metadata contains a precomputed unified diff
-		metaDiff := ""
-		if meta := jsonutil.MapOrEmpty(payload["metadata"]); len(meta) > 0 {
-			metaDiff = jsonutil.GetString(meta, "diff")
-		}
-
-		var diffBlock string
-		if oldStr != "" || newStr != "" {
-			diffBlock = d.renderDiffBlock("Diff", filePath, oldStr, newStr, expand)
-		} else if metaDiff != "" {
-			diffBlock = d.renderPatchBlock("Diff", metaDiff, expand)
-		}
-
-		return joinNonEmpty("\n",
-			field("File", filePath),
-			diffBlock,
-		)
-
+		return d.renderEditToolDetail(ctx), true
 	case "Write":
-		filePath := textutil.FirstNonEmpty(get("file_path"), get("filePath"))
+		filePath := textutil.FirstNonEmpty(ctx.get("file_path"), ctx.get("filePath"))
 		return joinNonEmpty("\n",
-			field("File", filePath),
-			d.renderAdditionsBlock("Content", filePath, get("content"), expand),
-		)
-
+			ctx.field("File", filePath),
+			d.renderAdditionsBlock("Content", filePath, ctx.get("content"), ctx.expand),
+		), true
 	case "apply_patch":
-		patch := textutil.FirstNonEmpty(get("input"), get("patch"), get("patchText"))
-		// OpenCode PostToolUse: metadata contains a precomputed unified diff
-		if patch == "" {
-			if meta := jsonutil.MapOrEmpty(payload["metadata"]); len(meta) > 0 {
-				patch = jsonutil.GetString(meta, "diff")
-			}
-		}
-		return joinNonEmpty("\n",
-			d.renderPatchBlock("Patch", patch, expand),
-		)
-
+		return d.renderApplyPatchDetail(ctx), true
 	case "Grep":
 		return joinNonEmpty("\n",
-			field("Pattern", get("pattern")),
-			field("Path", get("path")),
-			field("Glob", get("glob")),
-			field("Type", get("type")),
-			block("Result", textutil.FirstNonEmpty(response, get("result"))),
-		)
-
+			ctx.field("Pattern", ctx.get("pattern")),
+			ctx.field("Path", ctx.get("path")),
+			ctx.field("Glob", ctx.get("glob")),
+			ctx.field("Type", ctx.get("type")),
+			ctx.block("Result", textutil.FirstNonEmpty(ctx.response, ctx.get("result"))),
+		), true
 	case "Glob":
 		return joinNonEmpty("\n",
-			field("Pattern", get("pattern")),
-			field("Path", get("path")),
-			block("Result", textutil.FirstNonEmpty(response, get("result"))),
-		)
-
+			ctx.field("Pattern", ctx.get("pattern")),
+			ctx.field("Path", ctx.get("path")),
+			ctx.block("Result", textutil.FirstNonEmpty(ctx.response, ctx.get("result"))),
+		), true
 	case "Agent":
 		return joinNonEmpty("\n",
-			field("Name", get("name")),
-			field("Type", get("subagent_type")),
-			field("Model", get("model")),
-			field("Description", get("description")),
-			block("Prompt", get("prompt")),
-			block("Result", textutil.FirstNonEmpty(response, get("result"))),
-		)
-
+			ctx.field("Name", ctx.get("name")),
+			ctx.field("Type", ctx.get("subagent_type")),
+			ctx.field("Model", ctx.get("model")),
+			ctx.field("Description", ctx.get("description")),
+			ctx.block("Prompt", ctx.get("prompt")),
+			ctx.block("Result", textutil.FirstNonEmpty(ctx.response, ctx.get("result"))),
+		), true
 	default:
-		// merge input into payload for generic display
-		for k, v := range input {
-			if _, exists := payload[k]; !exists {
-				payload[k] = v
-			}
-		}
-		return d.renderGenericDetail(payload)
+		return "", false
 	}
+}
+
+func (d *detailModel) renderEditToolDetail(ctx detailRenderContext) string {
+	filePath := textutil.FirstNonEmpty(ctx.get("file_path"), ctx.get("filePath"))
+	oldStr := textutil.FirstNonEmpty(ctx.get("old_string"), ctx.get("oldString"))
+	newStr := textutil.FirstNonEmpty(ctx.get("new_string"), ctx.get("newString"))
+	metaDiff := ""
+	if meta := jsonutil.MapOrEmpty(ctx.payload["metadata"]); len(meta) > 0 {
+		metaDiff = jsonutil.GetString(meta, "diff")
+	}
+
+	var diffBlock string
+	if oldStr != "" || newStr != "" {
+		diffBlock = d.renderDiffBlock("Diff", filePath, oldStr, newStr, ctx.expand)
+	} else if metaDiff != "" {
+		diffBlock = d.renderPatchBlock("Diff", metaDiff, ctx.expand)
+	}
+
+	return joinNonEmpty("\n",
+		ctx.field("File", filePath),
+		diffBlock,
+	)
+}
+
+func (d *detailModel) renderApplyPatchDetail(ctx detailRenderContext) string {
+	patch := textutil.FirstNonEmpty(ctx.get("input"), ctx.get("patch"), ctx.get("patchText"))
+	if patch == "" {
+		if meta := jsonutil.MapOrEmpty(ctx.payload["metadata"]); len(meta) > 0 {
+			patch = jsonutil.GetString(meta, "diff")
+		}
+	}
+	return joinNonEmpty("\n", d.renderPatchBlock("Patch", patch, ctx.expand))
 }
 
 // renderDiffBlock renders old_string and new_string as a colored unified diff
