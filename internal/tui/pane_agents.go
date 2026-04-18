@@ -51,18 +51,71 @@ func (a *agentsModel) tick() {
 }
 
 func (a *agentsModel) enter() {
-	if a.cursor < len(a.agents) {
-		ag := a.agents[a.cursor]
-		if a.selectedAgent == ag.ID {
-			a.selectedAgent = "" // toggle off
-		} else {
-			a.selectedAgent = ag.ID
-		}
+	ag := a.currentAgent()
+	if ag == nil {
+		return
 	}
+	if a.selectedAgent == ag.ID {
+		a.selectedAgent = "" // toggle off
+	} else {
+		a.selectedAgent = ag.ID
+	}
+}
+
+func (a *agentsModel) currentAgent() *model.Agent {
+	if a.cursor < 0 || a.cursor >= len(a.agents) {
+		return nil
+	}
+	return &a.agents[a.cursor]
 }
 
 func (a *agentsModel) selectedAgentID() string {
 	return a.selectedAgent
+}
+
+func (a *agentsModel) agentTreePrefix(index int) string {
+	if a.agents[index].ParentAgentID == "" {
+		return ""
+	}
+	if index == len(a.agents)-1 || a.agents[index+1].ParentAgentID == "" {
+		return "└─ "
+	}
+	return "├─ "
+}
+
+func (a *agentsModel) agentDisplayName(agent model.Agent) string {
+	name := orDefault(agent.Name, shortID(agent.ID))
+	if agent.AgentType != "" {
+		name += " (" + agent.AgentType + ")"
+	}
+	if agent.ParentAgentID != "" && agent.Status == "active" {
+		frame := spinnerFrames[a.spinnerFrame%len(spinnerFrames)]
+		name = frame + " " + name
+	}
+	return name
+}
+
+func (a *agentsModel) renderAgentLine(index int, focused bool) string {
+	agent := a.agents[index]
+	tree := a.agentTreePrefix(index)
+	name := a.agentDisplayName(agent)
+	prefix := "  "
+	if index == a.cursor {
+		prefix = "> "
+	}
+
+	switch {
+	case index == a.cursor && focused:
+		style := cursorStyle
+		if agent.ID == a.selectedAgent {
+			style = cursorSelectedStyle
+		}
+		return style.Render("  " + tree + name)
+	case agent.ID == a.selectedAgent:
+		return selectedStyle.Render(prefix + tree + name)
+	default:
+		return prefix + tree + name
+	}
 }
 
 func (a *agentsModel) view(width, height int, focused bool) string {
@@ -71,51 +124,9 @@ func (a *agentsModel) view(width, height int, focused bool) string {
 	title := titleStyle.Render("Agents/Sessions")
 
 	var lines []string
-	for i, ag := range a.agents {
-		prefix := "  "
-		if i == a.cursor {
-			prefix = "> "
-		}
-		name := orDefault(ag.Name, shortID(ag.ID))
-		if ag.AgentType != "" {
-			name += " (" + ag.AgentType + ")"
-		}
-		// Show animated spinner for active subagents
-		if ag.ParentAgentID != "" && ag.Status == "active" {
-			frame := spinnerFrames[a.spinnerFrame%len(spinnerFrames)]
-			name = frame + " " + name
-		}
-		tree := ""
-		if ag.ParentAgentID != "" {
-			if i == len(a.agents)-1 || a.agents[i+1].ParentAgentID == "" {
-				tree = "└─ "
-			} else {
-				tree = "├─ "
-			}
-		}
-		var line string
-		switch {
-		case i == a.cursor && focused:
-			style := cursorStyle
-			if ag.ID == a.selectedAgent {
-				style = cursorSelectedStyle
-			}
-			line = style.Render("  " + tree + name)
-		case ag.ID == a.selectedAgent:
-			line = selectedStyle.Render(prefix + tree + name)
-		default:
-			line = prefix + tree + name
-		}
-		lines = append(lines, line)
+	for i := range a.agents {
+		lines = append(lines, a.renderAgentLine(i, focused))
 	}
 	visible := a.listPaneState.visibleLines(lines, width)
 	return renderPane(width, height, focused, title, visible)
-}
-
-func sliceLines(lines []string, offset, count int) []string {
-	if offset >= len(lines) {
-		return nil
-	}
-	end := min(offset+count, len(lines))
-	return lines[offset:end]
 }

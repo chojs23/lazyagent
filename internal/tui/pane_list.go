@@ -75,3 +75,11 @@ func (s *listPaneState) visibleLines(lines []string, width int) []string {
 	s.syncListScroll(len(lines))
 	return sliceLines(lines, s.scroll, max(s.height-3, 1))
 }
+
+func sliceLines(lines []string, offset, count int) []string {
+	if offset >= len(lines) {
+		return nil
+	}
+	end := min(offset+count, len(lines))
+	return lines[offset:end]
+}
