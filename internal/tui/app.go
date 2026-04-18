@@ -833,9 +833,7 @@ func (m Model) View() tea.View {
 func (m Model) loadDataCmd() tea.Cmd {
 	st := m.store
 	sessionID := m.projects.currentSessionID()
-	agentID := m.agents.selectedAgentID()
-	typeFilter := m.filter.typeValue()
-	search := m.filter.searchQuery
+	baseFilter := m.currentEventFilter()
 	// Preserve the number of already-loaded events on refresh so pagination
 	// progress is not lost when the periodic tick reloads data.
 	loadedCount := len(m.events.events)
@@ -880,14 +878,10 @@ func (m Model) loadDataCmd() tea.Cmd {
 			// When filters are active the SQL OFFSET must be relative to the
 			// filtered result set, not the total event count. Use a filtered
 			// count so pagination and needsOlder() work correctly.
-			hasFilter := agentID != "" || typeFilter != "" || search != ""
+			hasFilter := eventFilterActive(baseFilter)
 			filteredCount := rawCount
 			if hasFilter {
-				cf := model.EventFilter{Type: typeFilter, Search: search}
-				if agentID != "" {
-					cf.AgentIDs = []string{agentID}
-				}
-				filteredCount, err = q.CountFilteredEventsForSessionTree(ctx, sessionID, cf)
+				filteredCount, err = q.CountFilteredEventsForSessionTree(ctx, sessionID, baseFilter)
 				if err != nil {
 					return dataMsg{err: err}
 				}
@@ -895,17 +889,11 @@ func (m Model) loadDataCmd() tea.Cmd {
 
 			// Load from the end so the user sees the latest events first.
 			// On refresh, preserve the number of already-loaded events.
-			pageLimit := max(eventsPageSize, loadedCount)
-			eventsOffset = max(0, filteredCount-pageLimit)
-			filter := model.EventFilter{
-				Type:   typeFilter,
-				Search: search,
-				Limit:  pageLimit,
-				Offset: eventsOffset,
-			}
-			if agentID != "" {
-				filter.AgentIDs = []string{agentID}
-			}
+			pageLimit, offset := currentRefreshEventWindow(filteredCount, loadedCount)
+			eventsOffset = offset
+			filter := baseFilter
+			filter.Limit = pageLimit
+			filter.Offset = eventsOffset
 			events, err = q.ListEventsForSessionTree(ctx, sessionID, filter)
 			if err != nil {
 				return dataMsg{err: err}
@@ -932,9 +920,7 @@ func tickCmd(d time.Duration) tea.Cmd {
 func (m Model) loadOlderEventsCmd() tea.Cmd {
 	st := m.store
 	sessionID := m.projects.currentSessionID()
-	agentID := m.agents.selectedAgentID()
-	typeFilter := m.filter.typeValue()
-	search := m.filter.searchQuery
+	baseFilter := m.currentEventFilter()
 	currentOffset := m.events.loadedOffset
 
 	return func() tea.Msg {
@@ -944,24 +930,43 @@ func (m Model) loadOlderEventsCmd() tea.Cmd {
 		ctx := context.Background()
 		q := st.Read()
 
-		newOffset := max(0, currentOffset-eventsPageSize)
-		limit := currentOffset - newOffset
-
-		filter := model.EventFilter{
-			Type:   typeFilter,
-			Search: search,
-			Limit:  limit,
-			Offset: newOffset,
-		}
-		if agentID != "" {
-			filter.AgentIDs = []string{agentID}
-		}
+		limit, newOffset := currentOlderEventsWindow(currentOffset)
+		filter := baseFilter
+		filter.Limit = limit
+		filter.Offset = newOffset
 		events, err := q.ListEventsForSessionTree(ctx, sessionID, filter)
 		if err != nil {
 			return moreEventsMsg{err: err}
 		}
 		return moreEventsMsg{events: events, offset: newOffset}
 	}
+}
+
+func (m Model) currentEventFilter() model.EventFilter {
+	filter := model.EventFilter{
+		Type:   m.filter.typeValue(),
+		Search: m.filter.searchQuery,
+	}
+	if agentID := m.agents.selectedAgentID(); agentID != "" {
+		filter.AgentIDs = []string{agentID}
+	}
+	return filter
+}
+
+func eventFilterActive(filter model.EventFilter) bool {
+	return len(filter.AgentIDs) > 0 || filter.Type != "" || filter.Search != ""
+}
+
+func currentRefreshEventWindow(filteredCount, loadedCount int) (limit, offset int) {
+	limit = max(eventsPageSize, loadedCount)
+	offset = max(0, filteredCount-limit)
+	return limit, offset
+}
+
+func currentOlderEventsWindow(currentOffset int) (limit, offset int) {
+	offset = max(0, currentOffset-eventsPageSize)
+	limit = currentOffset - offset
+	return limit, offset
 }
 
 func spinnerTickCmd() tea.Cmd {
