@@ -5,12 +5,9 @@ import "github.com/chojs23/lazyagent/internal/model"
 var spinnerFrames = []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"}
 
 type agentsModel struct {
+	listPaneState
 	agents        []model.Agent
-	cursor        int
-	scroll        int
-	hScroll       int
 	selectedAgent string
-	height        int
 	spinnerFrame  int
 }
 
@@ -21,38 +18,32 @@ func newAgents() agentsModel {
 func (a *agentsModel) setAgents(agents []model.Agent) {
 	a.agents = agents
 	if a.cursor >= len(a.agents) {
-		a.cursor = max(len(a.agents)-1, 0)
+		a.clampCursor(len(a.agents))
 	}
 }
 
 func (a *agentsModel) moveUp() {
-	if a.cursor > 0 {
-		a.cursor--
-	}
+	a.listPaneState.moveUp()
 }
 
 func (a *agentsModel) moveDown() {
-	if a.cursor < len(a.agents)-1 {
-		a.cursor++
-	}
+	a.listPaneState.moveDown(len(a.agents))
 }
 
 func (a *agentsModel) halfPageUp(viewH int) {
-	a.cursor = max(a.cursor-viewH/2, 0)
+	a.listPaneState.halfPageUp(viewH)
 }
 
 func (a *agentsModel) halfPageDown(viewH int) {
-	a.cursor = min(a.cursor+viewH/2, max(len(a.agents)-1, 0))
+	a.listPaneState.halfPageDown(viewH, len(a.agents))
 }
 
 func (a *agentsModel) goTop() {
-	a.cursor = 0
+	a.listPaneState.goTop()
 }
 
 func (a *agentsModel) goBottom() {
-	if len(a.agents) > 0 {
-		a.cursor = len(a.agents) - 1
-	}
+	a.listPaneState.goBottom(len(a.agents))
 }
 
 func (a *agentsModel) tick() {
@@ -78,9 +69,6 @@ func (a *agentsModel) view(width, height int, focused bool) string {
 	a.height = height
 
 	title := titleStyle.Render("Agents/Sessions")
-
-	contentHeight := max(height-3, 1)
-	textWidth := max(width-4, 1)
 
 	var lines []string
 	for i, ag := range a.agents {
@@ -120,22 +108,7 @@ func (a *agentsModel) view(width, height int, focused bool) string {
 		}
 		lines = append(lines, line)
 	}
-
-	a.hScroll = clampHScroll(lines, a.hScroll, textWidth)
-	for i, l := range lines {
-		lines[i] = hScrollLine(l, a.hScroll, textWidth)
-	}
-
-	if a.cursor >= a.scroll+contentHeight {
-		a.scroll = a.cursor - contentHeight + 1
-	}
-	if a.cursor < a.scroll {
-		a.scroll = a.cursor
-	}
-	maxScroll := max(len(lines)-contentHeight, 0)
-	a.scroll = min(a.scroll, maxScroll)
-
-	visible := sliceLines(lines, a.scroll, contentHeight)
+	visible := a.listPaneState.visibleLines(lines, width)
 	return renderPane(width, height, focused, title, visible)
 }
 

@@ -11,16 +11,13 @@ import (
 )
 
 type projectsModel struct {
+	listPaneState
 	projects        []model.Project
 	sessions        []model.Session
 	items           []sidebarItem
-	cursor          int
-	scroll          int
-	hScroll         int
 	selectedSession string
 	expandedProjs   map[int64]bool
 	spinnerFrame    int
-	height          int
 }
 
 type sidebarItem struct {
@@ -60,7 +57,7 @@ func (p *projectsModel) rebuildItems() {
 		}
 	}
 	if p.cursor >= len(p.items) {
-		p.cursor = max(len(p.items)-1, 0)
+		p.clampCursor(len(p.items))
 	}
 }
 
@@ -97,33 +94,27 @@ func buildProjectSessionLabel(indent, tree string, sess model.Session) string {
 }
 
 func (p *projectsModel) moveUp() {
-	if p.cursor > 0 {
-		p.cursor--
-	}
+	p.listPaneState.moveUp()
 }
 
 func (p *projectsModel) moveDown() {
-	if p.cursor < len(p.items)-1 {
-		p.cursor++
-	}
+	p.listPaneState.moveDown(len(p.items))
 }
 
 func (p *projectsModel) halfPageUp(viewH int) {
-	p.cursor = max(p.cursor-viewH/2, 0)
+	p.listPaneState.halfPageUp(viewH)
 }
 
 func (p *projectsModel) halfPageDown(viewH int) {
-	p.cursor = min(p.cursor+viewH/2, max(len(p.items)-1, 0))
+	p.listPaneState.halfPageDown(viewH, len(p.items))
 }
 
 func (p *projectsModel) goTop() {
-	p.cursor = 0
+	p.listPaneState.goTop()
 }
 
 func (p *projectsModel) goBottom() {
-	if len(p.items) > 0 {
-		p.cursor = len(p.items) - 1
-	}
+	p.listPaneState.goBottom(len(p.items))
 }
 
 func (p *projectsModel) enter() (sessionChanged bool) {
@@ -200,9 +191,6 @@ func (p *projectsModel) view(width, height int, focused bool) string {
 
 	title := titleStyle.Render("Projects")
 
-	contentHeight := max(height-3, 1)
-	textWidth := max(width-4, 1) // border(2) + padding(2)
-
 	var lines []string
 	for i, item := range p.items {
 		prefix := "  "
@@ -243,21 +231,6 @@ func (p *projectsModel) view(width, height int, focused bool) string {
 		}
 		lines = append(lines, line)
 	}
-
-	p.hScroll = clampHScroll(lines, p.hScroll, textWidth)
-	for i, l := range lines {
-		lines[i] = hScrollLine(l, p.hScroll, textWidth)
-	}
-
-	if p.cursor >= p.scroll+contentHeight {
-		p.scroll = p.cursor - contentHeight + 1
-	}
-	if p.cursor < p.scroll {
-		p.scroll = p.cursor
-	}
-	maxScroll := max(len(lines)-contentHeight, 0)
-	p.scroll = min(p.scroll, maxScroll)
-
-	visible := sliceLines(lines, p.scroll, contentHeight)
+	visible := p.listPaneState.visibleLines(lines, width)
 	return renderPane(width, height, focused, title, visible)
 }
