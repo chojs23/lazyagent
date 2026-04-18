@@ -370,29 +370,23 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 func (m Model) updateProjects(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	k := msg.String()
-	switch k {
-	case "j", "down":
-		m.projects.moveDown()
-	case "k", "up":
-		m.projects.moveUp()
-	case "ctrl+d":
-		m.projects.halfPageDown(m.projects.height)
-	case "ctrl+u":
-		m.projects.halfPageUp(m.projects.height)
-	case "G":
-		m.projects.goBottom()
-	case "g":
-		if m.lastKey == "g" {
-			m.projects.goTop()
-			m.lastKey = ""
+	if result := m.handleCommonVerticalNav(k,
+		m.projects.moveDown,
+		m.projects.moveUp,
+		func() { m.projects.halfPageDown(m.projects.height) },
+		func() { m.projects.halfPageUp(m.projects.height) },
+		m.projects.goBottom,
+		m.projects.goTop,
+	); result != navUnhandled {
+		if result == navAwaitMore {
 			return m, nil
 		}
-		m.lastKey = "g"
 		return m, nil
-	case "l", "right":
-		m.projects.hScroll += 4
-	case "h", "left":
-		m.projects.hScroll = max(m.projects.hScroll-4, 0)
+	}
+	if m.handleHorizontalNav(k, &m.projects.hScroll) {
+		return m, nil
+	}
+	switch k {
 	case "enter", "space":
 		if m.projects.enter() {
 			m.lastKey = k
@@ -405,29 +399,21 @@ func (m Model) updateProjects(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 func (m Model) updateSession(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	k := msg.String()
-	switch k {
-	case "j", "down":
-		m.session.moveDown()
-	case "k", "up":
-		m.session.moveUp()
-	case "ctrl+d":
-		m.session.halfPageDown(m.session.height)
-	case "ctrl+u":
-		m.session.halfPageUp(m.session.height)
-	case "G":
-		m.session.goBottom()
-	case "g":
-		if m.lastKey == "g" {
-			m.session.goTop()
-			m.lastKey = ""
+	if result := m.handleCommonVerticalNav(k,
+		m.session.moveDown,
+		m.session.moveUp,
+		func() { m.session.halfPageDown(m.session.height) },
+		func() { m.session.halfPageUp(m.session.height) },
+		m.session.goBottom,
+		m.session.goTop,
+	); result != navUnhandled {
+		if result == navAwaitMore {
 			return m, nil
 		}
-		m.lastKey = "g"
 		return m, nil
-	case "l", "right":
-		m.session.hScroll += 4
-	case "h", "left":
-		m.session.hScroll = max(m.session.hScroll-4, 0)
+	}
+	if m.handleHorizontalNav(k, &m.session.hScroll) {
+		return m, nil
 	}
 	m.lastKey = k
 	return m, nil
@@ -435,29 +421,23 @@ func (m Model) updateSession(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 func (m Model) updateAgents(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	k := msg.String()
-	switch k {
-	case "j", "down":
-		m.agents.moveDown()
-	case "k", "up":
-		m.agents.moveUp()
-	case "ctrl+d":
-		m.agents.halfPageDown(m.agents.height)
-	case "ctrl+u":
-		m.agents.halfPageUp(m.agents.height)
-	case "G":
-		m.agents.goBottom()
-	case "g":
-		if m.lastKey == "g" {
-			m.agents.goTop()
-			m.lastKey = ""
+	if result := m.handleCommonVerticalNav(k,
+		m.agents.moveDown,
+		m.agents.moveUp,
+		func() { m.agents.halfPageDown(m.agents.height) },
+		func() { m.agents.halfPageUp(m.agents.height) },
+		m.agents.goBottom,
+		m.agents.goTop,
+	); result != navUnhandled {
+		if result == navAwaitMore {
 			return m, nil
 		}
-		m.lastKey = "g"
 		return m, nil
-	case "l", "right":
-		m.agents.hScroll += 4
-	case "h", "left":
-		m.agents.hScroll = max(m.agents.hScroll-4, 0)
+	}
+	if m.handleHorizontalNav(k, &m.agents.hScroll) {
+		return m, nil
+	}
+	switch k {
 	case "enter", "space":
 		m.agents.enter()
 		m.lastKey = k
@@ -469,25 +449,23 @@ func (m Model) updateAgents(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 func (m Model) updateEvents(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	k := msg.String()
-	switch k {
-	case "j", "down":
-		m.events.moveDown()
-	case "k", "up":
-		m.events.moveUp()
-	case "ctrl+d":
-		m.events.halfPageDown(m.events.height)
-	case "ctrl+u":
-		m.events.halfPageUp(m.events.height)
-	case "G":
-		m.events.goBottom()
-	case "g":
-		if m.lastKey == "g" {
-			m.events.goTop()
-			m.lastKey = ""
-			return m, m.syncEventSelectionAndMaybeLoadOlder()
+	if result := m.handleCommonVerticalNav(k,
+		m.events.moveDown,
+		m.events.moveUp,
+		func() { m.events.halfPageDown(m.events.height) },
+		func() { m.events.halfPageUp(m.events.height) },
+		m.events.goBottom,
+		m.events.goTop,
+	); result != navUnhandled {
+		if result == navAwaitMore {
+			return m, nil
 		}
-		m.lastKey = "g"
-		return m, nil
+		return m, m.syncEventSelectionAndMaybeLoadOlder()
+	}
+	if m.handleHorizontalNav(k, &m.events.hScroll) {
+		return m, m.syncEventSelectionAndMaybeLoadOlder()
+	}
+	switch k {
 	case "z":
 		if m.lastKey == "z" {
 			m.events.centerCursor()
@@ -496,10 +474,6 @@ func (m Model) updateEvents(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		m.lastKey = "z"
 		return m, nil
-	case "l", "right":
-		m.events.hScroll += 4
-	case "h", "left":
-		m.events.hScroll = max(m.events.hScroll-4, 0)
 	case "enter":
 		m.setFocus(focusDetail)
 		m.lastKey = k
@@ -507,6 +481,54 @@ func (m Model) updateEvents(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	}
 	m.lastKey = k
 	return m, m.syncEventSelectionAndMaybeLoadOlder()
+}
+
+type navResult int
+
+const (
+	navUnhandled navResult = iota
+	navHandled
+	navAwaitMore
+)
+
+func (m *Model) handleCommonVerticalNav(k string, moveDown, moveUp, halfDown, halfUp, goBottom, goTop func()) navResult {
+	switch k {
+	case "j", "down":
+		moveDown()
+	case "k", "up":
+		moveUp()
+	case "ctrl+d":
+		halfDown()
+	case "ctrl+u":
+		halfUp()
+	case "G":
+		goBottom()
+	case "g":
+		if m.lastKey == "g" {
+			goTop()
+			m.lastKey = ""
+			return navHandled
+		}
+		m.lastKey = "g"
+		return navAwaitMore
+	default:
+		return navUnhandled
+	}
+	m.lastKey = k
+	return navHandled
+}
+
+func (m *Model) handleHorizontalNav(k string, hScroll *int) bool {
+	switch k {
+	case "l", "right":
+		*hScroll += 4
+	case "h", "left":
+		*hScroll = max(*hScroll-4, 0)
+	default:
+		return false
+	}
+	m.lastKey = k
+	return true
 }
 
 func (m Model) updateSearch(msg tea.Msg) (tea.Model, tea.Cmd) {

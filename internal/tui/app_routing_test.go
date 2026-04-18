@@ -5,9 +5,15 @@ import (
 	"testing"
 	"time"
 
+	tea "charm.land/bubbletea/v2"
+
 	"github.com/chojs23/lazyagent/internal/model"
 	"github.com/chojs23/lazyagent/internal/store"
 )
+
+func testKey(text string) tea.KeyMsg {
+	return tea.KeyPressMsg(tea.Key{Text: text})
+}
 
 func testRoutingTUIStore(t *testing.T) *store.Store {
 	t.Helper()
@@ -129,5 +135,126 @@ func TestSyncEventSelectionAndMaybeLoadOlderReturnsCommandAtThreshold(t *testing
 	}
 	if m.detail.event == nil || m.detail.event.ID != 0 {
 		t.Fatalf("detail event = %#v, want selected top event", m.detail.event)
+	}
+}
+
+func TestUpdateProjectsDoubleGoesTop(t *testing.T) {
+	m := newModel(nil, time.Second)
+	m.projects.setData(
+		[]model.Project{{ID: 1, Name: "proj", SessionCount: 2}},
+		[]model.Session{
+			{ID: "session-1", ProjectID: 1, Runtime: "claude", StartedAt: 1},
+			{ID: "session-2", ProjectID: 1, Runtime: "claude", StartedAt: 2},
+		},
+	)
+	m.projects.enter()
+	m.projects.cursor = 1
+
+	updated, cmd := m.updateProjects(testKey("g"))
+	if cmd != nil {
+		t.Fatal("first g should not return command")
+	}
+	m = updated.(Model)
+	if m.lastKey != "g" {
+		t.Fatalf("lastKey = %q, want g", m.lastKey)
+	}
+
+	updated, cmd = m.updateProjects(testKey("g"))
+	if cmd != nil {
+		t.Fatal("second g in projects should not return command")
+	}
+	m = updated.(Model)
+	if m.projects.cursor != 0 {
+		t.Fatalf("projects cursor = %d, want 0", m.projects.cursor)
+	}
+	if m.lastKey != "" {
+		t.Fatalf("lastKey after gg = %q, want empty", m.lastKey)
+	}
+}
+
+func TestUpdateProjectsHorizontalScrollClamps(t *testing.T) {
+	m := newModel(nil, time.Second)
+	m.projects.hScroll = 1
+
+	updated, _ := m.updateProjects(testKey("h"))
+	m = updated.(Model)
+	if m.projects.hScroll != 0 {
+		t.Fatalf("projects hScroll after h = %d, want 0", m.projects.hScroll)
+	}
+
+	updated, _ = m.updateProjects(testKey("l"))
+	m = updated.(Model)
+	if m.projects.hScroll != 4 {
+		t.Fatalf("projects hScroll after l = %d, want 4", m.projects.hScroll)
+	}
+}
+
+func TestUpdateEventsDoubleGRequestsOlderAndClearsLastKey(t *testing.T) {
+	m := newModel(nil, time.Second)
+	m.agents.setAgents([]model.Agent{{ID: "agent-1"}})
+	m.events.events = makeEvents(eventsPageSize)
+	m.events.loadedOffset = 10
+	m.events.cursor = 5
+
+	updated, cmd := m.updateEvents(testKey("g"))
+	if cmd != nil {
+		t.Fatal("first g should not return command")
+	}
+	m = updated.(Model)
+	if m.lastKey != "g" {
+		t.Fatalf("lastKey = %q, want g", m.lastKey)
+	}
+
+	updated, cmd = m.updateEvents(testKey("g"))
+	if cmd == nil {
+		t.Fatal("second g in events should return sync/load command")
+	}
+	m = updated.(Model)
+	if m.events.cursor != 0 {
+		t.Fatalf("events cursor = %d, want 0", m.events.cursor)
+	}
+	if m.lastKey != "" {
+		t.Fatalf("lastKey after gg = %q, want empty", m.lastKey)
+	}
+}
+
+func TestUpdateEventsHorizontalScrollPreservesSyncPath(t *testing.T) {
+	m := newModel(nil, time.Second)
+	m.agents.setAgents([]model.Agent{{ID: "agent-1"}})
+	m.events.events = makeEvents(eventsPageSize)
+	m.events.loadedOffset = 10
+	m.events.cursor = 0
+	m.events.hScroll = 1
+
+	updated, cmd := m.updateEvents(testKey("h"))
+	if cmd == nil {
+		t.Fatal("events h should still return sync/load command")
+	}
+	m = updated.(Model)
+	if m.events.hScroll != 0 {
+		t.Fatalf("events hScroll after h = %d, want 0", m.events.hScroll)
+	}
+
+	updated, cmd = m.updateEvents(testKey("l"))
+	if cmd == nil {
+		t.Fatal("events l should still return sync/load command")
+	}
+	m = updated.(Model)
+	if m.events.hScroll != 4 {
+		t.Fatalf("events hScroll after l = %d, want 4", m.events.hScroll)
+	}
+}
+
+func TestUpdateEventsEnterStillFocusesDetail(t *testing.T) {
+	m := newModel(nil, time.Second)
+	m.focus = focusEvents
+
+	updated, cmd := m.updateEvents(tea.KeyPressMsg(tea.Key{Code: tea.KeyEnter}))
+	if cmd != nil {
+		t.Fatal("events enter should not return command")
+	}
+	m = updated.(Model)
+	if m.focus != focusDetail {
+		t.Fatalf("focus = %v, want %v", m.focus, focusDetail)
 	}
 }
