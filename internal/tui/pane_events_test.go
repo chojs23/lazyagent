@@ -569,3 +569,167 @@ func TestCenterCursor_NearBottom(t *testing.T) {
 		t.Fatalf("center near bottom: scroll=%d, want %d", e.scroll, maxScroll)
 	}
 }
+
+func TestEventBrief_UserPromptSubmitUsesFirstLine(t *testing.T) {
+	ev := model.Event{
+		Subtype: "UserPromptSubmit",
+		Payload: `{"prompt":"first line\nsecond line"}`,
+	}
+
+	if got := eventBrief(ev); got != "first line" {
+		t.Fatalf("eventBrief() = %q, want %q", got, "first line")
+	}
+}
+
+func TestEventBrief_PreToolUseEditUsesDiffStats(t *testing.T) {
+	ev := model.Event{
+		Subtype:  "PreToolUse",
+		ToolName: "Edit",
+		Payload:  `{"tool_input":{"file_path":"main.go","old_string":"before","new_string":"after"}}`,
+	}
+
+	if got := eventBrief(ev); got != "main.go (+1 -1)" {
+		t.Fatalf("eventBrief() = %q, want %q", got, "main.go (+1 -1)")
+	}
+}
+
+func TestEventBrief_PreToolUseApplyPatchSkipsPatchHeaders(t *testing.T) {
+	ev := model.Event{
+		Subtype:  "PreToolUse",
+		ToolName: "apply_patch",
+		Payload:  `{"tool_input":{"patchText":"*** Update File: main.go\n--- a/main.go\n+++ b/main.go\n-old\n+new"}}`,
+	}
+
+	if got := eventBrief(ev); got != "(+1 -1)" {
+		t.Fatalf("eventBrief() = %q, want %q", got, "(+1 -1)")
+	}
+}
+
+func TestEventBrief_PostToolUseEditUsesMetadataDiffFallback(t *testing.T) {
+	ev := model.Event{
+		Subtype:  "PostToolUse",
+		ToolName: "Edit",
+		Payload:  `{"args":{"file_path":"main.go"},"metadata":{"diff":"--- a/main.go\n+++ b/main.go\n-old\n+new"}}`,
+	}
+
+	if got := eventBrief(ev); got != "main.go (+1 -1)" {
+		t.Fatalf("eventBrief() = %q, want %q", got, "main.go (+1 -1)")
+	}
+}
+
+func TestEventBrief_PostToolUseBashPrefersStdout(t *testing.T) {
+	ev := model.Event{
+		Subtype:  "PostToolUse",
+		ToolName: "Bash",
+		Payload:  `{"tool_response":{"stdout":"ok line\nnext","stderr":"bad line"},"output":"fallback"}`,
+	}
+
+	if got := eventBrief(ev); got != "ok line" {
+		t.Fatalf("eventBrief() = %q, want %q", got, "ok line")
+	}
+}
+
+func TestEventBrief_SessionDiffSummary(t *testing.T) {
+	ev := model.Event{
+		Subtype: "SessionDiff",
+		Payload: `{"diff_file_count":"3","diff_additions":"42","diff_deletions":"10"}`,
+	}
+
+	if got := eventBrief(ev); got != "3 files (+42 -10)" {
+		t.Fatalf("eventBrief() = %q, want %q", got, "3 files (+42 -10)")
+	}
+}
+
+func TestEventBrief_SessionStatusRetry(t *testing.T) {
+	ev := model.Event{
+		Subtype: "SessionStatus",
+		Payload: `{"status_type":"retry","retry_attempt":"2","retry_message":"temporary failure"}`,
+	}
+
+	if got := eventBrief(ev); got != "retry #2: temporary failure" {
+		t.Fatalf("eventBrief() = %q, want %q", got, "retry #2: temporary failure")
+	}
+}
+
+func TestEventBrief_PartUpdatedBranches(t *testing.T) {
+	tests := []struct {
+		name string
+		ev   model.Event
+		want string
+	}{
+		{
+			name: "reasoning",
+			ev:   model.Event{Subtype: "PartUpdated", Payload: `{"part_type":"reasoning","text":"thinking out loud\nnext"}`},
+			want: "reasoning: thinking out loud",
+		},
+		{
+			name: "tool",
+			ev:   model.Event{Subtype: "PartUpdated", Payload: `{"part_type":"tool","tool_name":"Read","tool_status":"running","tool_title":"Inspect file"}`},
+			want: "Read [running] Inspect file",
+		},
+		{
+			name: "step finish",
+			ev:   model.Event{Subtype: "PartUpdated", Payload: `{"part_type":"step-finish","tokens_input":"12","tokens_output":"34"}`},
+			want: "step done (in:12 out:34)",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := eventBrief(tt.ev); got != tt.want {
+				t.Fatalf("eventBrief() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestIsBriefHighlighted(t *testing.T) {
+	tests := []struct {
+		name string
+		ev   model.Event
+		want bool
+	}{
+		{name: "user prompt", ev: model.Event{Subtype: "UserPromptSubmit"}, want: true},
+		{name: "stop", ev: model.Event{Subtype: "Stop"}, want: true},
+		{name: "part updated text", ev: model.Event{Subtype: "PartUpdated", Payload: `{"part_type":"text","text":"hello"}`}, want: true},
+		{name: "part updated tool", ev: model.Event{Subtype: "PartUpdated", Payload: `{"part_type":"tool","tool_name":"Read"}`}, want: false},
+		{name: "notification", ev: model.Event{Subtype: "Notification", Payload: `{"message":"notice"}`}, want: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := isBriefHighlighted(tt.ev); got != tt.want {
+				t.Fatalf("isBriefHighlighted() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestEditDiffStats(t *testing.T) {
+	if got := editDiffStats("same", "same"); got != "" {
+		t.Fatalf("editDiffStats() = %q, want empty", got)
+	}
+	if got := editDiffStats("before", "after"); got != "(+1 -1)" {
+		t.Fatalf("editDiffStats() = %q, want %q", got, "(+1 -1)")
+	}
+}
+
+func TestPatchDiffStats(t *testing.T) {
+	patch := "*** Update File: main.go\n--- a/main.go\n+++ b/main.go\n-old\n+new"
+	if got := patchDiffStats(patch); got != "(+1 -1)" {
+		t.Fatalf("patchDiffStats() = %q, want %q", got, "(+1 -1)")
+	}
+	if got := patchDiffStats("*** Update File: main.go"); got != "patch" {
+		t.Fatalf("patchDiffStats() = %q, want %q", got, "patch")
+	}
+}
+
+func TestRenderEventLineIncludesBriefText(t *testing.T) {
+	e := newEvents()
+	ev := model.Event{Subtype: "UserPromptSubmit", Payload: `{"prompt":"brief text"}`}
+	line := stripANSI(e.renderEventLine(ev, 0, false, false, nil, 80, 1))
+
+	if !contains(line, "brief text") {
+		t.Fatalf("renderEventLine() missing brief text in %q", line)
+	}
+}
