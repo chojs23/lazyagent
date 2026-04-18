@@ -94,6 +94,95 @@ func TestInitClaudeRegistersPostToolUseFailureHook(t *testing.T) {
 	}
 }
 
+func TestInstallCodexHooksPreservesNonLazyagentHooks(t *testing.T) {
+	hooksPath := filepath.Join(t.TempDir(), "hooks.json")
+	initial := map[string]any{
+		"hooks": map[string]any{
+			"SessionStart": []any{
+				map[string]any{
+					"hooks": []any{map[string]any{"type": "command", "command": "other-tool ingest"}},
+				},
+				map[string]any{
+					"hooks": []any{map[string]any{"type": "command", "command": "lazyagent ingest --runtime codex --quiet"}},
+				},
+			},
+		},
+	}
+	data, err := json.Marshal(initial)
+	if err != nil {
+		t.Fatalf("marshal initial hooks: %v", err)
+	}
+	if err := os.WriteFile(hooksPath, data, 0o644); err != nil {
+		t.Fatalf("write hooks file: %v", err)
+	}
+
+	if err := installCodexHooks(hooksPath); err != nil {
+		t.Fatalf("installCodexHooks: %v", err)
+	}
+
+	data, err = os.ReadFile(hooksPath)
+	if err != nil {
+		t.Fatalf("read hooks: %v", err)
+	}
+
+	var root map[string]any
+	if err := json.Unmarshal(data, &root); err != nil {
+		t.Fatalf("unmarshal hooks: %v", err)
+	}
+	hooks, ok := root["hooks"].(map[string]any)
+	if !ok {
+		t.Fatalf("hooks missing or wrong type: %#v", root["hooks"])
+	}
+	entries, ok := hooks["SessionStart"].([]any)
+	if !ok {
+		t.Fatalf("SessionStart hooks wrong type: %#v", hooks["SessionStart"])
+	}
+	if len(entries) != 2 {
+		t.Fatalf("SessionStart hooks len = %d, want 2", len(entries))
+	}
+
+	var commands []string
+	for _, entryRaw := range entries {
+		entry, ok := entryRaw.(map[string]any)
+		if !ok {
+			t.Fatalf("entry wrong type: %#v", entryRaw)
+		}
+		hookList, ok := entry["hooks"].([]any)
+		if !ok || len(hookList) == 0 {
+			t.Fatalf("nested hooks missing: %#v", entry["hooks"])
+		}
+		hook, ok := hookList[0].(map[string]any)
+		if !ok {
+			t.Fatalf("hook wrong type: %#v", hookList[0])
+		}
+		commands = append(commands, hook["command"].(string))
+	}
+
+	if !strings.Contains(commands[0], "other-tool ingest") && !strings.Contains(commands[1], "other-tool ingest") {
+		t.Fatalf("expected non-lazyagent hook to be preserved, got %v", commands)
+	}
+
+	var lazyagentCount int
+	for _, cmd := range commands {
+		if cmd == "lazyagent ingest --runtime codex --quiet" {
+			lazyagentCount++
+		}
+	}
+	if lazyagentCount != 1 {
+		t.Fatalf("expected exactly one managed codex hook, got %d in %v", lazyagentCount, commands)
+	}
+}
+
+func TestIngestRuntimeEventUnsupportedRuntime(t *testing.T) {
+	_, err := ingestRuntimeEvent(t.Context(), nil, "unknown", map[string]any{})
+	if err == nil {
+		t.Fatal("expected unsupported runtime error")
+	}
+	if err.Error() != `unsupported runtime "unknown"` {
+		t.Fatalf("error = %q, want %q", err.Error(), `unsupported runtime "unknown"`)
+	}
+}
+
 func captureStdout(t *testing.T, fn func()) string {
 	t.Helper()
 

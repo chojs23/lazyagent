@@ -11,6 +11,102 @@ import (
 
 var subagentRe = regexp.MustCompile(`\(@([\w-]+)(?:\s+subagent)?\)`)
 
+type eventSpec struct {
+	typ          string
+	subtype      string
+	metadataKeys []string
+}
+
+var eventSpecs = map[string]eventSpec{
+	"tool.execute.before": {typ: "tool", subtype: "PreToolUse"},
+	"tool.execute.after":  {typ: "tool", subtype: "PostToolUse"},
+	"session.created":     {typ: "session", subtype: "SessionStart"},
+	"session.updated":     {typ: "session", subtype: "SessionUpdated"},
+	"session.idle":        {typ: "system", subtype: "Stop"},
+	"session.deleted":     {typ: "session", subtype: "SessionEnd"},
+	"session.error": {
+		typ:          "system",
+		subtype:      "StopFailure",
+		metadataKeys: []string{"error_type", "error_message"},
+	},
+	"session.status": {
+		typ:          "system",
+		subtype:      "SessionStatus",
+		metadataKeys: []string{"status_type", "retry_attempt", "retry_message", "retry_next"},
+	},
+	"session.diff": {
+		typ:          "session",
+		subtype:      "SessionDiff",
+		metadataKeys: []string{"diff_file_count", "diff_additions", "diff_deletions", "diff_files"},
+	},
+	"session.compacted": {typ: "system", subtype: "Notification"},
+	"permission.asked": {
+		typ:          "system",
+		subtype:      "Notification",
+		metadataKeys: []string{"permission", "patterns"},
+	},
+	"permission.replied": {
+		typ:          "system",
+		subtype:      "PermissionReply",
+		metadataKeys: []string{"reply"},
+	},
+	"todo.updated": {
+		typ:          "system",
+		subtype:      "TodoUpdate",
+		metadataKeys: []string{"todo_count", "todos"},
+	},
+	"command.executed": {
+		typ:          "system",
+		subtype:      "CommandExecuted",
+		metadataKeys: []string{"command_name", "command_args"},
+	},
+	"file.edited": {
+		typ:          "system",
+		subtype:      "FileEdited",
+		metadataKeys: []string{"file"},
+	},
+	"message.updated": {
+		typ:     "message",
+		subtype: "MessageUpdated",
+		metadataKeys: []string{
+			"message_role", "message_id", "model_id", "agent_name",
+			"cost", "finish_reason",
+			"tokens_input", "tokens_output", "tokens_reasoning",
+			"tokens_cache_read", "tokens_cache_write",
+			"error_name", "error_message",
+		},
+	},
+	"message.removed": {
+		typ:          "message",
+		subtype:      "MessageRemoved",
+		metadataKeys: []string{"message_role", "message_id", "message_data"},
+	},
+	"message.part.updated": {
+		typ:     "message",
+		subtype: "PartUpdated",
+		metadataKeys: []string{
+			"part_type", "part_id", "message_id",
+			"text", "tool_name", "call_id", "tool_status", "tool_title", "tool_error",
+			"finish_reason", "cost",
+			"tokens_input", "tokens_output", "tokens_reasoning",
+			"tokens_cache_read", "tokens_cache_write",
+			"part_data",
+		},
+	},
+	"message.part.removed": {
+		typ:     "message",
+		subtype: "PartRemoved",
+		metadataKeys: []string{
+			"part_type", "part_id", "message_id",
+			"text", "tool_name", "call_id", "tool_status", "tool_title", "tool_error",
+			"finish_reason", "cost",
+			"tokens_input", "tokens_output", "tokens_reasoning",
+			"tokens_cache_read", "tokens_cache_write",
+			"part_data",
+		},
+	},
+}
+
 // ParseRawEvent converts an OpenCode plugin event payload into a normalized ParsedEvent.
 // Expected payload fields from the TypeScript plugin:
 //
@@ -40,68 +136,9 @@ func ParseRawEvent(raw map[string]any) model.ParsedEvent {
 	p.Timestamp = jsonutil.TimestampMillis(raw["timestamp"])
 
 	event := jsonutil.String(raw["event"])
-	switch event {
-	case "tool.execute.before":
-		p.Type = "tool"
-		p.Subtype = "PreToolUse"
-	case "tool.execute.after":
-		p.Type = "tool"
-		p.Subtype = "PostToolUse"
-	case "session.created":
-		p.Type = "session"
-		p.Subtype = "SessionStart"
-	case "session.updated":
-		p.Type = "session"
-		p.Subtype = "SessionUpdated"
-	case "session.idle":
-		p.Type = "system"
-		p.Subtype = "Stop"
-	case "session.deleted":
-		p.Type = "session"
-		p.Subtype = "SessionEnd"
-	case "session.error":
-		p.Type = "system"
-		p.Subtype = "StopFailure"
-	case "session.status":
-		p.Type = "system"
-		p.Subtype = "SessionStatus"
-	case "session.diff":
-		p.Type = "session"
-		p.Subtype = "SessionDiff"
-	case "session.compacted":
-		p.Type = "system"
-		p.Subtype = "Notification"
-	case "permission.asked":
-		p.Type = "system"
-		p.Subtype = "Notification"
-	case "permission.replied":
-		p.Type = "system"
-		p.Subtype = "PermissionReply"
-	case "todo.updated":
-		p.Type = "system"
-		p.Subtype = "TodoUpdate"
-	case "command.executed":
-		p.Type = "system"
-		p.Subtype = "CommandExecuted"
-	case "file.edited":
-		p.Type = "system"
-		p.Subtype = "FileEdited"
-	case "message.updated":
-		p.Type = "message"
-		p.Subtype = "MessageUpdated"
-	case "message.removed":
-		p.Type = "message"
-		p.Subtype = "MessageRemoved"
-	case "message.part.updated":
-		p.Type = "message"
-		p.Subtype = "PartUpdated"
-	case "message.part.removed":
-		p.Type = "message"
-		p.Subtype = "PartRemoved"
-	default:
-		p.Type = "system"
-		p.Subtype = event
-	}
+	spec := eventSpecFor(event)
+	p.Type = spec.typ
+	p.Subtype = spec.subtype
 
 	// extract project slug from project_dir
 	if dir := jsonutil.String(raw["project_dir"]); dir != "" {
@@ -130,85 +167,24 @@ func ParseRawEvent(raw map[string]any) model.ParsedEvent {
 
 	// Propagate event-specific fields into metadata so downstream consumers
 	// (ingest, TUI) can access them without re-parsing the raw payload.
-	switch event {
-	case "session.status":
-		for _, k := range []string{"status_type", "retry_attempt", "retry_message", "retry_next"} {
-			if v, ok := raw[k]; ok {
-				p.Metadata[k] = v
-			}
-		}
-	case "session.diff":
-		for _, k := range []string{"diff_file_count", "diff_additions", "diff_deletions", "diff_files"} {
-			if v, ok := raw[k]; ok {
-				p.Metadata[k] = v
-			}
-		}
-	case "session.error":
-		for _, k := range []string{"error_type", "error_message"} {
-			if v, ok := raw[k]; ok {
-				p.Metadata[k] = v
-			}
-		}
-	case "permission.asked":
-		for _, k := range []string{"permission", "patterns"} {
-			if v, ok := raw[k]; ok {
-				p.Metadata[k] = v
-			}
-		}
-	case "permission.replied":
-		if v, ok := raw["reply"]; ok {
-			p.Metadata["reply"] = v
-		}
-	case "todo.updated":
-		for _, k := range []string{"todo_count", "todos"} {
-			if v, ok := raw[k]; ok {
-				p.Metadata[k] = v
-			}
-		}
-	case "command.executed":
-		for _, k := range []string{"command_name", "command_args"} {
-			if v, ok := raw[k]; ok {
-				p.Metadata[k] = v
-			}
-		}
-	case "file.edited":
-		if v, ok := raw["file"]; ok {
-			p.Metadata["file"] = v
-		}
-	case "message.updated":
-		for _, k := range []string{
-			"message_role", "message_id", "model_id", "agent_name",
-			"cost", "finish_reason",
-			"tokens_input", "tokens_output", "tokens_reasoning",
-			"tokens_cache_read", "tokens_cache_write",
-			"error_name", "error_message",
-		} {
-			if v, ok := raw[k]; ok {
-				p.Metadata[k] = v
-			}
-		}
-	case "message.removed":
-		for _, k := range []string{"message_role", "message_id", "message_data"} {
-			if v, ok := raw[k]; ok {
-				p.Metadata[k] = v
-			}
-		}
-	case "message.part.updated", "message.part.removed":
-		for _, k := range []string{
-			"part_type", "part_id", "message_id",
-			"text", "tool_name", "call_id", "tool_status", "tool_title", "tool_error",
-			"finish_reason", "cost",
-			"tokens_input", "tokens_output", "tokens_reasoning",
-			"tokens_cache_read", "tokens_cache_write",
-			"part_data",
-		} {
-			if v, ok := raw[k]; ok {
-				p.Metadata[k] = v
-			}
-		}
-	}
+	copyMetadataFields(p.Metadata, raw, spec.metadataKeys)
 
 	return p
+}
+
+func eventSpecFor(event string) eventSpec {
+	if spec, ok := eventSpecs[event]; ok {
+		return spec
+	}
+	return eventSpec{typ: "system", subtype: event}
+}
+
+func copyMetadataFields(dst, raw map[string]any, keys []string) {
+	for _, k := range keys {
+		if v, ok := raw[k]; ok {
+			dst[k] = v
+		}
+	}
 }
 
 // normalizeToolName maps OpenCode's lowercase tool names to the PascalCase

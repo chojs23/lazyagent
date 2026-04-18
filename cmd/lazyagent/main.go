@@ -137,17 +137,7 @@ func runIngestParsed(st *store.Store, runtime string, quiet, stream bool) error 
 		return fmt.Errorf("decode JSON: %w", err)
 	}
 
-	var result app.IngestResult
-	switch runtime {
-	case "claude":
-		result, err = app.IngestClaudeEvent(context.Background(), st, payload)
-	case "opencode":
-		result, err = app.IngestOpenCodeEvent(context.Background(), st, payload)
-	case "codex":
-		result, err = app.IngestCodexEvent(context.Background(), st, payload)
-	default:
-		return fmt.Errorf("unsupported runtime %q", runtime)
-	}
+	result, err := ingestRuntimeEvent(context.Background(), st, runtime, payload)
 	if err != nil {
 		return fmt.Errorf("ingest %s: %w", runtime, err)
 	}
@@ -180,23 +170,26 @@ func runIngestStream(st *store.Store, runtime string) error {
 			continue
 		}
 
-		var err error
-		switch runtime {
-		case "claude":
-			_, err = app.IngestClaudeEvent(context.Background(), st, payload)
-		case "opencode":
-			_, err = app.IngestOpenCodeEvent(context.Background(), st, payload)
-		case "codex":
-			_, err = app.IngestCodexEvent(context.Background(), st, payload)
-		default:
-			return fmt.Errorf("unsupported runtime %q", runtime)
-		}
+		_, err := ingestRuntimeEvent(context.Background(), st, runtime, payload)
 		if err != nil {
 			applog.Error("stream: ingest "+runtime, err)
 		}
 	}
 
 	return scanner.Err()
+}
+
+func ingestRuntimeEvent(ctx context.Context, st *store.Store, runtime string, payload map[string]any) (app.IngestResult, error) {
+	switch runtime {
+	case "claude":
+		return app.IngestClaudeEvent(ctx, st, payload)
+	case "opencode":
+		return app.IngestOpenCodeEvent(ctx, st, payload)
+	case "codex":
+		return app.IngestCodexEvent(ctx, st, payload)
+	default:
+		return app.IngestResult{}, fmt.Errorf("unsupported runtime %q", runtime)
+	}
 }
 
 func runHealth(st *store.Store, dbPath string) error {
@@ -278,18 +271,7 @@ func initClaude() error {
 	}
 
 	events := []string{"PreToolUse", "PostToolUse", "PostToolUseFailure", "SessionStart", "SessionEnd", "Stop", "SubagentStop", "Notification", "UserPromptSubmit"}
-
-	for _, event := range events {
-		// remove existing lazyagent hooks, keep others
-		hooks[event] = removeLazyagentHooks(hooks[event])
-		// add current lazyagent hook
-		entry := map[string]any{
-			"matcher": "",
-			"hooks":   []any{map[string]any{"type": "command", "command": hookCmd}},
-		}
-		existing, _ := hooks[event].([]any)
-		hooks[event] = append(existing, entry)
-	}
+	installManagedCommandHooks(hooks, events, hookCmd, true)
 
 	settings["hooks"] = hooks
 
@@ -347,6 +329,23 @@ func removeLazyagentHooks(eventEntry any) []any {
 		}
 	}
 	return kept
+}
+
+func installManagedCommandHooks(hooks map[string]any, events []string, hookCmd string, includeMatcher bool) {
+	for _, event := range events {
+		existing := removeLazyagentHooks(hooks[event])
+		hooks[event] = append(existing, managedCommandHookEntry(hookCmd, includeMatcher))
+	}
+}
+
+func managedCommandHookEntry(command string, includeMatcher bool) map[string]any {
+	entry := map[string]any{
+		"hooks": []any{map[string]any{"type": "command", "command": command}},
+	}
+	if includeMatcher {
+		entry["matcher"] = ""
+	}
+	return entry
 }
 
 func initCodex() error {
@@ -427,22 +426,7 @@ func installCodexHooks(hooksPath string) error {
 	if hooks == nil {
 		hooks = map[string]any{}
 	}
-
-	for _, event := range events {
-		hooks[event] = removeLazyagentHooks(hooks[event])
-
-		entry := map[string]any{
-			"hooks": []any{
-				map[string]any{
-					"type":    "command",
-					"command": hookCmd,
-				},
-			},
-		}
-
-		existing, _ := hooks[event].([]any)
-		hooks[event] = append(existing, entry)
-	}
+	installManagedCommandHooks(hooks, events, hookCmd, false)
 
 	root["hooks"] = hooks
 

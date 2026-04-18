@@ -23,31 +23,18 @@ func resolveProject(ctx context.Context, q *store.Queries, transcriptPath, cwd s
 		}
 
 		candidates := deriveSlugCandidates(cwd)
-		for _, c := range candidates {
-			proj, err := q.GetProjectBySlug(ctx, c)
-			if err != nil {
-				return 0, err
+		projectBySlug, foundBySlug, err := findProjectBySlugCandidates(ctx, q, candidates)
+		if err != nil {
+			return 0, err
+		}
+		if foundBySlug {
+			if projectBySlug.Directory == "" {
+				q.UpdateProjectDirectory(ctx, projectBySlug.ID, cwd)
 			}
-			if proj != nil {
-				if proj.Directory == "" {
-					q.UpdateProjectDirectory(ctx, proj.ID, cwd)
-				}
-				return proj.ID, nil
-			}
+			return projectBySlug.ID, nil
 		}
 
-		for _, c := range candidates {
-			avail, err := q.IsSlugAvailable(ctx, c)
-			if err != nil {
-				return 0, err
-			}
-			if avail {
-				return q.CreateProject(ctx, c, c, cwd, "")
-			}
-		}
-
-		base := candidates[0]
-		return createProjectWithUniqueSlug(ctx, q, base, cwd, "")
+		return createProjectFromCandidates(ctx, q, candidates, cwd, "")
 	}
 
 	if transcriptPath != "" {
@@ -64,18 +51,7 @@ func resolveProject(ctx context.Context, q *store.Queries, transcriptPath, cwd s
 		}
 
 		candidates := deriveSlugCandidates(transcriptPath)
-		for _, c := range candidates {
-			avail, err := q.IsSlugAvailable(ctx, c)
-			if err != nil {
-				return 0, err
-			}
-			if avail {
-				return q.CreateProject(ctx, c, c, cwd, transcriptDir)
-			}
-		}
-
-		base := candidates[0]
-		return createProjectWithUniqueSlug(ctx, q, base, cwd, transcriptDir)
+		return createProjectFromCandidates(ctx, q, candidates, cwd, transcriptDir)
 	}
 
 	proj, err := q.GetProjectBySlug(ctx, "unknown")
@@ -86,6 +62,38 @@ func resolveProject(ctx context.Context, q *store.Queries, transcriptPath, cwd s
 		return proj.ID, nil
 	}
 	return q.CreateProject(ctx, "unknown", "unknown", "", "")
+}
+
+func findProjectBySlugCandidates(ctx context.Context, q *store.Queries, candidates []string) (projectLookup, bool, error) {
+	for _, c := range candidates {
+		proj, err := q.GetProjectBySlug(ctx, c)
+		if err != nil {
+			return projectLookup{}, false, err
+		}
+		if proj != nil {
+			return projectLookup{ID: proj.ID, Directory: proj.Directory}, true, nil
+		}
+	}
+	return projectLookup{}, false, nil
+}
+
+type projectLookup struct {
+	ID        int64
+	Directory string
+}
+
+func createProjectFromCandidates(ctx context.Context, q *store.Queries, candidates []string, directory, transcriptPath string) (int64, error) {
+	for _, c := range candidates {
+		avail, err := q.IsSlugAvailable(ctx, c)
+		if err != nil {
+			return 0, err
+		}
+		if avail {
+			return q.CreateProject(ctx, c, c, directory, transcriptPath)
+		}
+	}
+
+	return createProjectWithUniqueSlug(ctx, q, candidates[0], directory, transcriptPath)
 }
 
 func createProjectWithUniqueSlug(ctx context.Context, q *store.Queries, base, directory, transcriptPath string) (int64, error) {

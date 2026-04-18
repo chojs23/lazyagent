@@ -148,6 +148,31 @@ func TestParseRawEvent_NewEventTypes(t *testing.T) {
 	}
 }
 
+func TestParseRawEvent_PermissionAskedNotificationMetadata(t *testing.T) {
+	raw := map[string]any{
+		"event":       "permission.asked",
+		"session_id":  "sess-1",
+		"permission":  "read",
+		"patterns":    []any{"*.go"},
+		"project_dir": "/home/user/project",
+	}
+	p := ParseRawEvent(raw)
+
+	if p.Type != "system" {
+		t.Fatalf("Type = %q, want system", p.Type)
+	}
+	if p.Subtype != "Notification" {
+		t.Fatalf("Subtype = %q, want Notification", p.Subtype)
+	}
+	if p.Metadata["permission"] != "read" {
+		t.Fatalf("permission = %v, want read", p.Metadata["permission"])
+	}
+	patterns, ok := p.Metadata["patterns"].([]any)
+	if !ok || len(patterns) != 1 || patterns[0] != "*.go" {
+		t.Fatalf("patterns = %#v, want [*.go]", p.Metadata["patterns"])
+	}
+}
+
 func TestParseRawEvent_MessageUpdated(t *testing.T) {
 	raw := map[string]any{
 		"event":              "message.updated",
