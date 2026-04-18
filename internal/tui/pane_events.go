@@ -158,8 +158,10 @@ func (e *eventsModel) selectedEvent() *model.Event {
 
 func (e *eventsModel) view(width, height int, focused bool, agentMap map[string]agentInfo) string {
 	e.height = height
+	return renderPane(width, height, focused, e.headerLine(), e.visibleLines(focused, agentMap, width))
+}
 
-	// header
+func (e *eventsModel) headerLine() string {
 	header := fmt.Sprintf("Events: %d", len(e.events))
 	if e.rawCount > 0 && e.rawCount != len(e.events) {
 		header = fmt.Sprintf("Events: %d / %d raw", len(e.events), e.rawCount)
@@ -168,28 +170,31 @@ func (e *eventsModel) view(width, height int, focused bool, agentMap map[string]
 	if e.autoFollow {
 		headerLine += dimStyle.Render(" [auto]")
 	}
+	return headerLine
+}
 
-	contentHeight := max(height-3, 1)
-
-	// scroll is computed by clampScroll() in Update()-context methods.
-	// Just read it here.
-	var lines []string
+func (e *eventsModel) visibleLines(focused bool, agentMap map[string]agentInfo, width int) []string {
+	contentHeight := max(e.height-3, 1)
 	end := min(e.scroll+contentHeight, len(e.events))
 	totalDigits := len(fmt.Sprintf("%d", e.loadedOffset+len(e.events)))
+
+	var lines []string
 	for i := e.scroll; i < end; i++ {
 		ev := e.events[i]
 		absIndex := e.loadedOffset + i
 		line := e.renderEventLine(ev, absIndex, i == e.cursor, focused, agentMap, width-4, totalDigits)
 		lines = append(lines, line)
 	}
+	return e.applyHorizontalScroll(lines, width)
+}
 
+func (e *eventsModel) applyHorizontalScroll(lines []string, width int) []string {
 	textWidth := max(width-4, 1)
 	e.hScroll = clampHScroll(lines, e.hScroll, textWidth)
 	for i, l := range lines {
 		lines[i] = hScrollLine(l, e.hScroll, textWidth)
 	}
-
-	return renderPane(width, height, focused, headerLine, lines)
+	return lines
 }
 
 func (e *eventsModel) renderEventLine(ev model.Event, index int, atCursor bool, focused bool, agentMap map[string]agentInfo, maxW int, totalDigits int) string {

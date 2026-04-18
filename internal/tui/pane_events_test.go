@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/chojs23/lazyagent/internal/model"
@@ -731,5 +732,44 @@ func TestRenderEventLineIncludesBriefText(t *testing.T) {
 
 	if !contains(line, "brief text") {
 		t.Fatalf("renderEventLine() missing brief text in %q", line)
+	}
+}
+
+func TestEventsViewShowsRawCountAndAutoHeader(t *testing.T) {
+	e := newEvents()
+	e.rawCount = 10
+	e.events = makeEvents(3)
+	e.autoFollow = true
+
+	view := stripANSI(e.view(80, 10, false, nil))
+
+	for _, want := range []string{"Events: 3 / 10 raw", "[auto]"} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("view missing %q in %q", want, view)
+		}
+	}
+}
+
+func TestEventsViewUsesScrollWindow(t *testing.T) {
+	e := newEvents()
+	e.autoFollow = false
+	e.events = []model.Event{
+		{ID: 1, Subtype: "UserPromptSubmit", Payload: `{"prompt":"one"}`},
+		{ID: 2, Subtype: "UserPromptSubmit", Payload: `{"prompt":"two"}`},
+		{ID: 3, Subtype: "UserPromptSubmit", Payload: `{"prompt":"three"}`},
+	}
+	e.rawCount = len(e.events)
+	e.scroll = 1
+	e.cursor = 1
+
+	view := stripANSI(e.view(80, 5, false, nil))
+
+	if strings.Contains(view, "one") {
+		t.Fatalf("view should not include scrolled-out event: %q", view)
+	}
+	for _, want := range []string{"two", "three"} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("view missing %q in %q", want, view)
+		}
 	}
 }
