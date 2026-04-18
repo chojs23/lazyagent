@@ -26,6 +26,20 @@ type dbtx interface {
 	QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row
 }
 
+const sessionTreeCTE = `WITH RECURSIVE session_tree(id) AS (
+		SELECT ?1
+		UNION ALL
+		SELECT s.id FROM sessions s
+		JOIN session_tree st ON s.parent_session_id = st.id
+	) `
+
+const sessionTreeWithParentCTE = `WITH RECURSIVE session_tree(id, parent) AS (
+		SELECT ?1, ''
+		UNION ALL
+		SELECT s.id, s.parent_session_id FROM sessions s
+		JOIN session_tree st ON s.parent_session_id = st.id
+	) `
+
 func Open(dbPath string) (*Store, error) {
 	dsn := dbPath + "?_busy_timeout=5000&_txlock=immediate"
 	db, err := sql.Open("sqlite", dsn)
@@ -459,21 +473,14 @@ func (q *Queries) ClearSessionEvents(ctx context.Context, id string) error {
 	// tree, matching the recursive scope used by ListEventsForSessionTree and
 	// ListAgentsForSessionTree. Without this, child-session data would remain
 	// visible in the TUI after clearing the parent.
-	const treeCTE = `WITH RECURSIVE session_tree(id) AS (
-		SELECT ?1
-		UNION ALL
-		SELECT s.id FROM sessions s
-		JOIN session_tree st ON s.parent_session_id = st.id
-	) `
-
-	if _, err := q.db.ExecContext(ctx, treeCTE+`DELETE FROM events WHERE session_id IN (SELECT id FROM session_tree)`, id); err != nil {
+	if _, err := q.db.ExecContext(ctx, sessionTreeCTE+`DELETE FROM events WHERE session_id IN (SELECT id FROM session_tree)`, id); err != nil {
 		return err
 	}
-	if _, err := q.db.ExecContext(ctx, treeCTE+`DELETE FROM agents WHERE session_id IN (SELECT id FROM session_tree)`, id); err != nil {
+	if _, err := q.db.ExecContext(ctx, sessionTreeCTE+`DELETE FROM agents WHERE session_id IN (SELECT id FROM session_tree)`, id); err != nil {
 		return err
 	}
 	now := nowMillis()
-	_, err := q.db.ExecContext(ctx, treeCTE+`UPDATE sessions SET event_count=0, agent_count=0, last_activity=NULL, updated_at=? WHERE id IN (SELECT id FROM session_tree)`, id, now)
+	_, err := q.db.ExecContext(ctx, sessionTreeCTE+`UPDATE sessions SET event_count=0, agent_count=0, last_activity=NULL, updated_at=? WHERE id IN (SELECT id FROM session_tree)`, id, now)
 	return err
 }
 
@@ -585,13 +592,7 @@ func (q *Queries) GetAgentByID(ctx context.Context, id string) (*model.Agent, er
 // parent_agent_id set to their parent session's ID so they render as a
 // proper tree in the agents pane.
 func (q *Queries) ListAgentsForSessionTree(ctx context.Context, sessionID string) ([]model.Agent, error) {
-	rows, err := q.db.QueryContext(ctx, `
-		WITH RECURSIVE session_tree(id, parent) AS (
-			SELECT ?1, ''
-			UNION ALL
-			SELECT s.id, s.parent_session_id FROM sessions s
-			JOIN session_tree st ON s.parent_session_id = st.id
-		)
+	rows, err := q.db.QueryContext(ctx, sessionTreeWithParentCTE+`
 		SELECT a.id, a.session_id,
 			CASE WHEN a.session_id != ?1 THEN COALESCE(
 				(SELECT parent FROM session_tree WHERE id = a.session_id), ?1
@@ -619,17 +620,20 @@ func (q *Queries) ListAgentsForSessionTree(ctx context.Context, sessionID string
 }
 
 func (q *Queries) CountEventsForSessionTree(ctx context.Context, sessionID string) (int, error) {
+	parts, args := sessionTreeEventQueryParts(
+		"SELECT COUNT(*) FROM events WHERE session_id IN (SELECT id FROM session_tree)",
+		sessionID,
+		model.EventFilter{},
+	)
 	var count int
-	err := q.db.QueryRowContext(ctx, `
-		WITH RECURSIVE session_tree(id) AS (
-			SELECT ?1
-			UNION ALL
-			SELECT s.id FROM sessions s
-			JOIN session_tree st ON s.parent_session_id = st.id
-		)
-		SELECT COUNT(*) FROM events
-		WHERE session_id IN (SELECT id FROM session_tree)`, sessionID).Scan(&count)
+	err := q.db.QueryRowContext(ctx, strings.Join(parts, " "), args...).Scan(&count)
 	return count, err
+}
+
+func sessionTreeEventQueryParts(baseQuery, sessionID string, f model.EventFilter) ([]string, []any) {
+	parts := []string{sessionTreeCTE + baseQuery}
+	args := []any{sessionID}
+	return appendEventFilterConditions(parts, args, f)
 }
 
 // appendEventFilterConditions keeps the event filter predicate assembly in one
@@ -680,15 +684,11 @@ func appendEventFilterConditions(parts []string, args []any, f model.EventFilter
 // match the given filter conditions. When no filter fields are set this
 // behaves identically to CountEventsForSessionTree.
 func (q *Queries) CountFilteredEventsForSessionTree(ctx context.Context, sessionID string, f model.EventFilter) (int, error) {
-	cte := `WITH RECURSIVE session_tree(id) AS (
-		SELECT ?1
-		UNION ALL
-		SELECT s.id FROM sessions s
-		JOIN session_tree st ON s.parent_session_id = st.id
-	) `
-	parts := []string{cte + "SELECT COUNT(*) FROM events WHERE session_id IN (SELECT id FROM session_tree)"}
-	args := []any{sessionID}
-	parts, args = appendEventFilterConditions(parts, args, f)
+	parts, args := sessionTreeEventQueryParts(
+		"SELECT COUNT(*) FROM events WHERE session_id IN (SELECT id FROM session_tree)",
+		sessionID,
+		f,
+	)
 
 	var count int
 	err := q.db.QueryRowContext(ctx, strings.Join(parts, " "), args...).Scan(&count)
@@ -696,15 +696,11 @@ func (q *Queries) CountFilteredEventsForSessionTree(ctx context.Context, session
 }
 
 func (q *Queries) ListEventsForSessionTree(ctx context.Context, sessionID string, f model.EventFilter) ([]model.Event, error) {
-	cte := `WITH RECURSIVE session_tree(id) AS (
-		SELECT ?1
-		UNION ALL
-		SELECT s.id FROM sessions s
-		JOIN session_tree st ON s.parent_session_id = st.id
-	) `
-	parts := []string{cte + "SELECT id, agent_id, session_id, type, COALESCE(subtype,''), COALESCE(tool_name,''), COALESCE(tool_use_id,''), timestamp, created_at, payload FROM events WHERE session_id IN (SELECT id FROM session_tree)"}
-	args := []any{sessionID}
-	parts, args = appendEventFilterConditions(parts, args, f)
+	parts, args := sessionTreeEventQueryParts(
+		"SELECT id, agent_id, session_id, type, COALESCE(subtype,''), COALESCE(tool_name,''), COALESCE(tool_use_id,''), timestamp, created_at, payload FROM events WHERE session_id IN (SELECT id FROM session_tree)",
+		sessionID,
+		f,
+	)
 	parts = append(parts, "ORDER BY timestamp ASC")
 	if f.Limit > 0 {
 		parts = append(parts, "LIMIT ?")

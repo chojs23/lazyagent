@@ -486,6 +486,71 @@ func TestFilteredSessionTreeEventQueriesExcludeStopsWithoutAssistantMessage(t *t
 	}
 }
 
+func TestUnfilteredSessionTreeCountMatchesFilteredEmptyFilter(t *testing.T) {
+	st := testStore(t)
+	ctx := context.Background()
+
+	var projectID int64
+	err := st.WithTx(ctx, func(q *Queries) error {
+		var err error
+		projectID, err = q.CreateProject(ctx, "count-proj", "Count", "/tmp/count", "")
+		return err
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	err = st.WithTx(ctx, func(q *Queries) error {
+		if err := q.UpsertSession(ctx, "parent", "", projectID, "parent", "claude", nil, 1000, ""); err != nil {
+			return err
+		}
+		if err := q.UpsertSession(ctx, "child", "parent", projectID, "child", "claude", nil, 2000, ""); err != nil {
+			return err
+		}
+		if err := q.UpsertAgent(ctx, "agent-parent", "parent", "", "Parent", "", "main", ""); err != nil {
+			return err
+		}
+		if err := q.UpsertAgent(ctx, "agent-child", "child", "", "Child", "", "sub", ""); err != nil {
+			return err
+		}
+		for _, event := range []model.Event{
+			{AgentID: "agent-parent", SessionID: "parent", Type: "tool", Subtype: "Read", Timestamp: 1000, Payload: `{"text":"root"}`},
+			{AgentID: "agent-child", SessionID: "child", Type: "message", Subtype: "PartUpdated", Timestamp: 2000, Payload: `{"part_type":"text","text":"child"}`},
+		} {
+			if _, err := q.InsertEvent(ctx, event); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	count, err := st.Read().CountEventsForSessionTree(ctx, "parent")
+	if err != nil {
+		t.Fatal(err)
+	}
+	filteredCount, err := st.Read().CountFilteredEventsForSessionTree(ctx, "parent", model.EventFilter{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	events, err := st.Read().ListEventsForSessionTree(ctx, "parent", model.EventFilter{})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if count != filteredCount {
+		t.Fatalf("unfiltered count drifted from empty filter count: count=%d filtered=%d", count, filteredCount)
+	}
+	if count != len(events) {
+		t.Fatalf("unfiltered count drifted from list query: count=%d list=%d", count, len(events))
+	}
+	if count != 2 {
+		t.Fatalf("expected 2 tree events, got %d", count)
+	}
+}
+
 func TestListRecentSessionsStaysInStartedAtOrder(t *testing.T) {
 	st := testStore(t)
 	ctx := context.Background()
