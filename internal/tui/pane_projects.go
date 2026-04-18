@@ -14,6 +14,8 @@ type projectsModel struct {
 	listPaneState
 	projects        []model.Project
 	sessions        []model.Session
+	rootSessions    map[int64][]model.Session
+	sessionStatuses map[string]string
 	items           []sidebarItem
 	selectedSession string
 	expandedProjs   map[int64]bool
@@ -29,13 +31,17 @@ type sidebarItem struct {
 
 func newProjects() projectsModel {
 	return projectsModel{
-		expandedProjs: map[int64]bool{},
+		expandedProjs:   map[int64]bool{},
+		rootSessions:    map[int64][]model.Session{},
+		sessionStatuses: map[string]string{},
 	}
 }
 
 func (p *projectsModel) setData(projects []model.Project, sessions []model.Session) {
 	p.projects = projects
 	p.sessions = sessions
+	p.rootSessions = buildRootSessionsByProject(sessions)
+	p.sessionStatuses = buildSessionStatusIndex(sessions)
 	p.rebuildItems()
 }
 
@@ -48,11 +54,8 @@ func (p *projectsModel) rebuildItems() {
 			label:     fmt.Sprintf("%s (%d)", orDefault(proj.Name, proj.Slug), proj.SessionCount),
 		})
 		if p.expandedProjs[proj.ID] {
-			// collect root sessions (no parent) for this project
-			for _, sess := range p.sessions {
-				if sess.ProjectID == proj.ID && sess.ParentSessionID == "" {
-					p.addSessionItem(proj.ID, sess, 0)
-				}
+			for _, sess := range p.rootSessions[proj.ID] {
+				p.addSessionItem(proj.ID, sess, 0)
 			}
 		}
 	}
@@ -178,12 +181,33 @@ func (p *projectsModel) sessionIcons(item sidebarItem, raw bool) string {
 }
 
 func (p *projectsModel) sessionStatus(id string) string {
+	if status, ok := p.sessionStatuses[id]; ok {
+		return status
+	}
 	for _, sess := range p.sessions {
 		if sess.ID == id {
 			return sess.Status
 		}
 	}
 	return ""
+}
+
+func buildRootSessionsByProject(sessions []model.Session) map[int64][]model.Session {
+	rootSessions := make(map[int64][]model.Session)
+	for _, sess := range sessions {
+		if sess.ParentSessionID == "" {
+			rootSessions[sess.ProjectID] = append(rootSessions[sess.ProjectID], sess)
+		}
+	}
+	return rootSessions
+}
+
+func buildSessionStatusIndex(sessions []model.Session) map[string]string {
+	statuses := make(map[string]string, len(sessions))
+	for _, sess := range sessions {
+		statuses[sess.ID] = sess.Status
+	}
+	return statuses
 }
 
 func (p *projectsModel) view(width, height int, focused bool) string {
