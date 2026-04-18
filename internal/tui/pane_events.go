@@ -195,34 +195,47 @@ func (e *eventsModel) view(width, height int, focused bool, agentMap map[string]
 func (e *eventsModel) renderEventLine(ev model.Event, index int, atCursor bool, focused bool, agentMap map[string]agentInfo, maxW int, totalDigits int) string {
 	numStr := fmt.Sprintf("%*d", totalDigits, index+1)
 	subtype := truncate(orDefault(ev.Subtype, ev.Type), 20)
-
-	agentLabel := ""
-	if info, ok := agentMap[ev.AgentID]; ok {
-		agentLabel = info.name
-	}
-
+	agentLabel, agentInfo := eventAgentLabel(ev, agentMap)
 	brief := eventBrief(ev)
-
-	// order: num | agent | subtype | tool | brief
 	if atCursor {
-		var parts []string
-		parts = append(parts, numStr)
-		if agentLabel != "" {
-			parts = append(parts, agentLabel)
-		}
-		parts = append(parts, subtype)
-		if ev.ToolName != "" {
-			parts = append(parts, ev.ToolName)
-		}
-		if brief != "" {
-			parts = append(parts, brief)
-		}
-		style := selectedStyle
-		if focused {
-			style = cursorStyle
-		}
-		return style.Render("  " + strings.Join(parts, "  "))
+		return renderSelectedEventLine(ev, focused, numStr, agentLabel, subtype, brief)
 	}
+	return renderPlainEventLine(ev, numStr, subtype, agentLabel, agentInfo, brief)
+}
+
+func eventAgentLabel(ev model.Event, agentMap map[string]agentInfo) (string, agentInfo) {
+	info, ok := agentMap[ev.AgentID]
+	if !ok {
+		return "", agentInfo{}
+	}
+	return info.name, info
+}
+
+func eventLineParts(numStr, agentLabel, subtype, toolName, brief string) []string {
+	parts := []string{numStr}
+	if agentLabel != "" {
+		parts = append(parts, agentLabel)
+	}
+	parts = append(parts, subtype)
+	if toolName != "" {
+		parts = append(parts, toolName)
+	}
+	if brief != "" {
+		parts = append(parts, brief)
+	}
+	return parts
+}
+
+func renderSelectedEventLine(ev model.Event, focused bool, numStr, agentLabel, subtype, brief string) string {
+	parts := eventLineParts(numStr, agentLabel, subtype, ev.ToolName, brief)
+	style := selectedStyle
+	if focused {
+		style = cursorStyle
+	}
+	return style.Render("  " + strings.Join(parts, "  "))
+}
+
+func renderPlainEventLine(ev model.Event, numStr, subtype, agentLabel string, info agentInfo, brief string) string {
 
 	stColor := subtypeColor(ev.Subtype)
 	subtypeStr := lipgloss.NewStyle().Foreground(stColor).Render(subtype)
@@ -230,7 +243,6 @@ func (e *eventsModel) renderEventLine(ev model.Event, index int, atCursor bool, 
 	var parts []string
 	parts = append(parts, dimStyle.Render(numStr))
 	if agentLabel != "" {
-		info := agentMap[ev.AgentID]
 		c := agentColor(info.index)
 		parts = append(parts, lipgloss.NewStyle().Foreground(c).Render(agentLabel))
 	}
