@@ -182,7 +182,7 @@ func (e *eventsModel) visibleLines(focused bool, agentMap map[string]agentInfo, 
 	for i := e.scroll; i < end; i++ {
 		ev := e.events[i]
 		absIndex := e.loadedOffset + i
-		line := e.renderEventLine(ev, absIndex, i == e.cursor, focused, agentMap, width-4, totalDigits)
+		line := e.renderEventLine(ev, absIndex, i == e.cursor, focused, agentMap, totalDigits)
 		lines = append(lines, line)
 	}
 	return e.applyHorizontalScroll(lines, width)
@@ -197,7 +197,7 @@ func (e *eventsModel) applyHorizontalScroll(lines []string, width int) []string 
 	return lines
 }
 
-func (e *eventsModel) renderEventLine(ev model.Event, index int, atCursor bool, focused bool, agentMap map[string]agentInfo, maxW int, totalDigits int) string {
+func (e *eventsModel) renderEventLine(ev model.Event, index int, atCursor bool, focused bool, agentMap map[string]agentInfo, totalDigits int) string {
 	numStr := fmt.Sprintf("%*d", totalDigits, index+1)
 	subtype := truncate(orDefault(ev.Subtype, ev.Type), 20)
 	agentLabel, agentInfo := eventAgentLabel(ev, agentMap)
@@ -575,7 +575,7 @@ func patchDiffStats(patch string) string {
 		return ""
 	}
 	var adds, dels int
-	for _, line := range strings.Split(patch, "\n") {
+	for _, line := range splitLines(patch) {
 		if len(line) == 0 {
 			continue
 		}

@@ -292,7 +292,7 @@ func TestRenderEventLine_AbsoluteNumbering(t *testing.T) {
 	// The view renders lines with absolute index. Verify by calling
 	// renderEventLine directly with an absolute index.
 	ev := e.events[0]
-	line := e.renderEventLine(ev, 9900, false, false, nil, 80, 5)
+	line := e.renderEventLine(ev, 9900, false, false, nil, 5)
 
 	// The absolute number should be 9901 (9900 + 1 since renderEventLine does index+1)
 	if !contains(line, "9901") {
@@ -305,7 +305,7 @@ func TestRenderEventLine_AbsoluteNumbering_LastEvent(t *testing.T) {
 	e.setEvents(makeEvents(100), 10000, 9900)
 
 	ev := e.events[99]
-	line := e.renderEventLine(ev, 9999, false, false, nil, 80, 5)
+	line := e.renderEventLine(ev, 9999, false, false, nil, 5)
 
 	if !contains(line, "10000") {
 		t.Fatalf("expected absolute number 10000 in line, got: %s", line)
@@ -728,7 +728,7 @@ func TestPatchDiffStats(t *testing.T) {
 func TestRenderEventLineIncludesBriefText(t *testing.T) {
 	e := newEvents()
 	ev := model.Event{Subtype: "UserPromptSubmit", Payload: `{"prompt":"brief text"}`}
-	line := stripANSI(e.renderEventLine(ev, 0, false, false, nil, 80, 1))
+	line := stripANSI(e.renderEventLine(ev, 0, false, false, nil, 1))
 
 	if !contains(line, "brief text") {
 		t.Fatalf("renderEventLine() missing brief text in %q", line)
