@@ -253,32 +253,25 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case key.Matches(msg, m.keys.Quit):
 		return m, tea.Quit
 	case key.Matches(msg, m.keys.NextPane):
-		m.focus = (m.focus + 1) % paneCount
-		m.syncLayout()
+		m.setFocus((m.focus + 1) % paneCount)
 		return m, nil
 	case key.Matches(msg, m.keys.PrevPane):
-		m.focus = (m.focus + paneCount - 1) % paneCount
-		m.syncLayout()
+		m.setFocus((m.focus + paneCount - 1) % paneCount)
 		return m, nil
 	case key.Matches(msg, m.keys.PaneProjects):
-		m.focus = focusProjects
-		m.syncLayout()
+		m.setFocus(focusProjects)
 		return m, nil
 	case key.Matches(msg, m.keys.PaneSession):
-		m.focus = focusSession
-		m.syncLayout()
+		m.setFocus(focusSession)
 		return m, nil
 	case key.Matches(msg, m.keys.PaneAgents):
-		m.focus = focusAgents
-		m.syncLayout()
+		m.setFocus(focusAgents)
 		return m, nil
 	case key.Matches(msg, m.keys.PaneEvents):
-		m.focus = focusEvents
-		m.syncLayout()
+		m.setFocus(focusEvents)
 		return m, nil
 	case key.Matches(msg, m.keys.PaneDetail):
-		m.focus = focusDetail
-		m.syncLayout()
+		m.setFocus(focusDetail)
 		return m, nil
 	case msg.Key().Code == tea.KeyEscape && m.filter.searchQuery != "" && m.focus != focusDetail:
 		m.filter.clearSearch()
@@ -342,8 +335,7 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		k := msg.String()
 		switch k {
 		case "esc":
-			m.focus = focusEvents
-			m.syncLayout()
+			m.setFocus(focusEvents)
 			m.lastKey = k
 			return m, nil
 		case "J":
@@ -403,11 +395,8 @@ func (m Model) updateProjects(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.projects.hScroll = max(m.projects.hScroll-4, 0)
 	case "enter", "space":
 		if m.projects.enter() {
-			m.agents.selectedAgent = ""
-			m.agents.cursor = 0
-			m.syncSessionPane()
 			m.lastKey = k
-			return m, m.loadDataCmd()
+			return m, m.activateProjectSelection()
 		}
 	}
 	m.lastKey = k
@@ -471,16 +460,8 @@ func (m Model) updateAgents(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.agents.hScroll = max(m.agents.hScroll-4, 0)
 	case "enter", "space":
 		m.agents.enter()
-		agentLabel := "all"
-		if id := m.agents.selectedAgentID(); id != "" {
-			agentLabel = shortID(id)
-			if a, _ := m.store.Read().GetAgentByID(context.Background(), id); a != nil && a.Name != "" {
-				agentLabel = a.Name
-			}
-		}
-		m.filter.setAgentLabel(agentLabel)
 		m.lastKey = k
-		return m, m.loadDataCmd()
+		return m, m.applyAgentSelection()
 	}
 	m.lastKey = k
 	return m, nil
@@ -491,25 +472,19 @@ func (m Model) updateEvents(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch k {
 	case "j", "down":
 		m.events.moveDown()
-		m.syncDetailFromEvent()
 	case "k", "up":
 		m.events.moveUp()
-		m.syncDetailFromEvent()
 	case "ctrl+d":
 		m.events.halfPageDown(m.events.height)
-		m.syncDetailFromEvent()
 	case "ctrl+u":
 		m.events.halfPageUp(m.events.height)
-		m.syncDetailFromEvent()
 	case "G":
 		m.events.goBottom()
-		m.syncDetailFromEvent()
 	case "g":
 		if m.lastKey == "g" {
 			m.events.goTop()
-			m.syncDetailFromEvent()
 			m.lastKey = ""
-			return m, nil
+			return m, m.syncEventSelectionAndMaybeLoadOlder()
 		}
 		m.lastKey = "g"
 		return m, nil
@@ -526,16 +501,12 @@ func (m Model) updateEvents(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "h", "left":
 		m.events.hScroll = max(m.events.hScroll-4, 0)
 	case "enter":
-		m.focus = focusDetail
-		m.syncLayout()
+		m.setFocus(focusDetail)
 		m.lastKey = k
 		return m, nil
 	}
 	m.lastKey = k
-	if m.events.needsOlder() {
-		return m, m.loadOlderEventsCmd()
-	}
-	return m, nil
+	return m, m.syncEventSelectionAndMaybeLoadOlder()
 }
 
 func (m Model) updateSearch(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -562,6 +533,57 @@ func (m Model) updateSearch(msg tea.Msg) (tea.Model, tea.Cmd) {
 func (m *Model) syncDetailFromEvent() {
 	ev := m.events.selectedEvent()
 	m.detail.setEvent(ev, m.agents.agents)
+}
+
+func (m *Model) setFocus(pane focusPane) {
+	m.focus = pane
+	m.syncLayout()
+}
+
+func (m *Model) activateProjectSelection() tea.Cmd {
+	m.agents.selectedAgent = ""
+	m.agents.cursor = 0
+	m.syncSessionPane()
+	return m.loadDataCmd()
+}
+
+func (m *Model) selectedAgentLabel() string {
+	agentLabel := "all"
+	id := m.agents.selectedAgentID()
+	if id == "" {
+		return agentLabel
+	}
+	agentLabel = shortID(id)
+	if m.store == nil {
+		return agentLabel
+	}
+	if a, _ := m.store.Read().GetAgentByID(context.Background(), id); a != nil && a.Name != "" {
+		return a.Name
+	}
+	return agentLabel
+}
+
+func (m *Model) applyAgentSelection() tea.Cmd {
+	m.filter.setAgentLabel(m.selectedAgentLabel())
+	return m.loadDataCmd()
+}
+
+func (m *Model) selectEventAt(index int) {
+	if index < 0 || index >= len(m.events.events) {
+		return
+	}
+	m.events.cursor = index
+	m.events.autoFollow = false
+	m.events.clampScroll()
+	m.syncDetailFromEvent()
+}
+
+func (m *Model) syncEventSelectionAndMaybeLoadOlder() tea.Cmd {
+	m.syncDetailFromEvent()
+	if m.events.needsOlder() {
+		return m.loadOlderEventsCmd()
+	}
+	return nil
 }
 
 func (m *Model) applyData(d dataMsg) {

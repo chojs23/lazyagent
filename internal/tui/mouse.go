@@ -1,10 +1,6 @@
 package tui
 
-import (
-	"context"
-
-	tea "charm.land/bubbletea/v2"
-)
+import tea "charm.land/bubbletea/v2"
 
 const mouseScrollLines = 3
 
@@ -23,8 +19,7 @@ func (m Model) handleMouseClick(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
-	m.focus = pane
-	m.syncLayout()
+	m.setFocus(pane)
 
 	switch pane {
 	case focusProjects:
@@ -34,10 +29,7 @@ func (m Model) handleMouseClick(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
 			if idx < len(m.projects.items) {
 				m.projects.cursor = idx
 				if m.projects.enter() {
-					m.agents.selectedAgent = ""
-					m.agents.cursor = 0
-					m.syncSessionPane()
-					return m, m.loadDataCmd()
+					return m, m.activateProjectSelection()
 				}
 			}
 		}
@@ -49,15 +41,7 @@ func (m Model) handleMouseClick(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
 			if idx < len(m.agents.agents) {
 				m.agents.cursor = idx
 				m.agents.enter()
-				agentLabel := "all"
-				if id := m.agents.selectedAgentID(); id != "" {
-					agentLabel = shortID(id)
-					if a, _ := m.store.Read().GetAgentByID(context.Background(), id); a != nil && a.Name != "" {
-						agentLabel = a.Name
-					}
-				}
-				m.filter.setAgentLabel(agentLabel)
-				return m, m.loadDataCmd()
+				return m, m.applyAgentSelection()
 			}
 		}
 
@@ -65,12 +49,7 @@ func (m Model) handleMouseClick(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
 		row := contentRow(msg.Y, 0)
 		if row >= 0 {
 			idx := m.events.scroll + row
-			if idx < len(m.events.events) {
-				m.events.cursor = idx
-				m.events.autoFollow = false
-				m.events.clampScroll()
-				m.syncDetailFromEvent()
-			}
+			m.selectEventAt(idx)
 		}
 	}
 
@@ -124,10 +103,7 @@ func (m Model) handleMouseWheel(msg tea.MouseWheelMsg) (tea.Model, tea.Cmd) {
 				m.events.moveDown()
 			}
 		}
-		m.syncDetailFromEvent()
-		if m.events.needsOlder() {
-			return m, m.loadOlderEventsCmd()
-		}
+		return m, m.syncEventSelectionAndMaybeLoadOlder()
 
 	case focusDetail:
 		if up {
