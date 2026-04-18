@@ -346,6 +346,63 @@ func TestFilteredSessionTreeEventQueriesStayAlignedForMessageResponses(t *testin
 	}
 }
 
+func TestListAgentsForSessionTreeReparentsChildSessionAgents(t *testing.T) {
+	st := testStore(t)
+	ctx := context.Background()
+
+	var projectID int64
+	err := st.WithTx(ctx, func(q *Queries) error {
+		var err error
+		projectID, err = q.CreateProject(ctx, "agent-tree-proj", "Agent Tree", "/tmp/agent-tree", "")
+		return err
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	err = st.WithTx(ctx, func(q *Queries) error {
+		if err := q.UpsertSession(ctx, "parent", "", projectID, "parent", "claude", nil, 1000, ""); err != nil {
+			return err
+		}
+		if err := q.UpsertSession(ctx, "child", "parent", projectID, "child", "claude", nil, 2000, ""); err != nil {
+			return err
+		}
+		if err := q.UpsertAgent(ctx, "parent", "parent", "", "Parent Root", "", "main", ""); err != nil {
+			return err
+		}
+		if err := q.UpsertAgent(ctx, "child", "child", "", "Child Root", "", "sub", ""); err != nil {
+			return err
+		}
+		return q.UpsertAgent(ctx, "child-worker", "child", "child", "Child Worker", "", "worker", "")
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	agents, err := st.Read().ListAgentsForSessionTree(ctx, "parent")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(agents) != 3 {
+		t.Fatalf("expected 3 agents, got %d", len(agents))
+	}
+
+	got := make(map[string]model.Agent, len(agents))
+	for _, agent := range agents {
+		got[agent.ID] = agent
+	}
+
+	if got["parent"].ParentAgentID != "" {
+		t.Fatalf("parent root ParentAgentID = %q, want empty", got["parent"].ParentAgentID)
+	}
+	if got["child"].ParentAgentID != "parent" {
+		t.Fatalf("child root ParentAgentID = %q, want parent", got["child"].ParentAgentID)
+	}
+	if got["child-worker"].ParentAgentID != "parent" {
+		t.Fatalf("child worker ParentAgentID = %q, want parent", got["child-worker"].ParentAgentID)
+	}
+}
+
 func TestFilteredSessionTreeEventQueriesExcludeStopsWithoutAssistantMessage(t *testing.T) {
 	st := testStore(t)
 	ctx := context.Background()
