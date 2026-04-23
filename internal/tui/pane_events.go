@@ -76,21 +76,7 @@ func (e *eventsModel) needsOlder() bool {
 // setEvents, layout changes) so the result persists.  bubbletea's View()
 // runs on a value copy, so scroll mutations there are silently lost.
 func (e *eventsModel) clampScroll() {
-	contentHeight := max(e.height-3, 1)
-	scrolloff := min(3, (contentHeight-1)/2)
-
-	// cursor too close to bottom edge → scroll down
-	if e.cursor > e.scroll+contentHeight-1-scrolloff {
-		e.scroll = e.cursor - contentHeight + 1 + scrolloff
-	}
-	// cursor too close to top edge → scroll up
-	if e.cursor < e.scroll+scrolloff {
-		e.scroll = e.cursor - scrolloff
-	}
-
-	e.scroll = max(e.scroll, 0)
-	maxScroll := max(len(e.events)-contentHeight, 0)
-	e.scroll = min(e.scroll, maxScroll)
+	e.scroll = clampListScroll(e.cursor, e.scroll, e.height, len(e.events), 3)
 }
 
 func (e *eventsModel) moveUp() {

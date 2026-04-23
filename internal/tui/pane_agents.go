@@ -12,7 +12,7 @@ type agentsModel struct {
 }
 
 func newAgents() agentsModel {
-	return agentsModel{}
+	return agentsModel{listPaneState: listPaneState{scrolloff: 3}}
 }
 
 func (a *agentsModel) setAgents(agents []model.Agent) {

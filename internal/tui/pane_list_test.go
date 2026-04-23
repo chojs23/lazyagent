@@ -61,3 +61,23 @@ func TestListPaneStateVisibleLinesKeepsCursorVisible(t *testing.T) {
 		t.Fatalf("visible lines = %#v, want [3 4 5 6 7]", visible)
 	}
 }
+
+func TestListPaneStateVisibleLinesAppliesScrolloff(t *testing.T) {
+	state := listPaneState{cursor: 7, height: 13, scrolloff: 3}
+	lines := []string{"0", "1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13", "14"}
+
+	visible := state.visibleLines(lines, 20)
+
+	if state.scroll != 1 {
+		t.Fatalf("scroll = %d, want 1", state.scroll)
+	}
+	if len(visible) != 10 {
+		t.Fatalf("visible lines len = %d, want 10", len(visible))
+	}
+	if visible[0] != "1" || visible[len(visible)-1] != "10" {
+		t.Fatalf("visible lines = %#v, want [1 2 3 4 5 6 7 8 9 10]", visible)
+	}
+	if pos := state.cursor - state.scroll; pos != 6 {
+		t.Fatalf("cursor viewport position = %d, want 6", pos)
+	}
+}

@@ -42,6 +42,14 @@ func TestBuildProjectSessionLabelUsesSlugWhenAvailable(t *testing.T) {
 	}
 }
 
+func TestNewProjectsUsesEventsStyleScrolloff(t *testing.T) {
+	pane := newProjects()
+
+	if pane.scrolloff != 3 {
+		t.Fatalf("scrolloff = %d, want 3", pane.scrolloff)
+	}
+}
+
 func TestBuildProjectSessionLabelFallsBackToShortIDWithoutSlug(t *testing.T) {
 	sess := model.Session{
 		ID:        "session-abcdef1234567890",

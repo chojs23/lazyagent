@@ -23,6 +23,14 @@ func TestAgentsEnterTogglesSelectionAtCursor(t *testing.T) {
 	}
 }
 
+func TestNewAgentsUsesEventsStyleScrolloff(t *testing.T) {
+	pane := newAgents()
+
+	if pane.scrolloff != 3 {
+		t.Fatalf("scrolloff = %d, want 3", pane.scrolloff)
+	}
+}
+
 func TestAgentsSetAgentsClampsCursorToAvailableRange(t *testing.T) {
 	pane := newAgents()
 	pane.cursor = 5

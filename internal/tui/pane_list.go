@@ -1,10 +1,11 @@
 package tui
 
 type listPaneState struct {
-	cursor  int
-	scroll  int
-	hScroll int
-	height  int
+	cursor    int
+	scroll    int
+	hScroll   int
+	height    int
+	scrolloff int
 }
 
 func (s *listPaneState) clampCursor(total int) {
@@ -52,18 +53,23 @@ func (s *listPaneState) goBottom(total int) {
 }
 
 func (s *listPaneState) syncListScroll(total int) {
-	contentHeight := max(s.height-3, 1)
-	if s.cursor >= s.scroll+contentHeight {
-		s.scroll = s.cursor - contentHeight + 1
+	s.scroll = clampListScroll(s.cursor, s.scroll, s.height, total, s.scrolloff)
+}
+
+func clampListScroll(cursor, scroll, height, total, desiredScrolloff int) int {
+	contentHeight := max(height-3, 1)
+	scrolloff := min(max(desiredScrolloff, 0), (contentHeight-1)/2)
+
+	if cursor > scroll+contentHeight-1-scrolloff {
+		scroll = cursor - contentHeight + 1 + scrolloff
 	}
-	if s.cursor < s.scroll {
-		s.scroll = s.cursor
+	if cursor < scroll+scrolloff {
+		scroll = cursor - scrolloff
 	}
+
+	scroll = max(scroll, 0)
 	maxScroll := max(total-contentHeight, 0)
-	s.scroll = min(s.scroll, maxScroll)
-	if s.scroll < 0 {
-		s.scroll = 0
-	}
+	return min(scroll, maxScroll)
 }
 
 func (s *listPaneState) visibleLines(lines []string, width int) []string {

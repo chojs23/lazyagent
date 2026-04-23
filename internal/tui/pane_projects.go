@@ -31,6 +31,7 @@ type sidebarItem struct {
 
 func newProjects() projectsModel {
 	return projectsModel{
+		listPaneState:   listPaneState{scrolloff: 3},
 		expandedProjs:   map[int64]bool{},
 		rootSessions:    map[int64][]model.Session{},
 		sessionStatuses: map[string]string{},
