@@ -9,9 +9,11 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/signal"
 	"path/filepath"
 	"runtime/debug"
 	"strings"
+	"syscall"
 
 	"github.com/BurntSushi/toml"
 	"github.com/chojs23/lazyagent/internal/app"
@@ -20,6 +22,7 @@ import (
 	"github.com/chojs23/lazyagent/internal/store"
 	"github.com/chojs23/lazyagent/internal/tui"
 	"github.com/chojs23/lazyagent/internal/version"
+	"github.com/chojs23/lazyagent/internal/web"
 )
 
 //go:embed opencode_plugin.ts
@@ -65,6 +68,12 @@ func run() error {
 		return runVersion(os.Args[2:])
 	case "--version", "-version", "-v":
 		return runVersion(nil)
+	case "--web", "-web", "web":
+		// `--web` is a top-level shortcut for the `web` subcommand. Any flags
+		// after it (host/port) are parsed by runWeb so users can write either
+		// `lazyagent --web --port 8080` or `lazyagent web --port 8080`.
+		args := os.Args[2:]
+		return runWeb(args)
 	case "init":
 		if len(os.Args) < 3 {
 			fmt.Println("Usage: lazyagent init <claude|opencode|codex>")
@@ -120,6 +129,29 @@ func openStore() (config.Config, *store.Store, error) {
 	}
 
 	return cfg, st, nil
+}
+
+// runWeb starts the read-only HTTP dashboard. It opens the same SQLite store
+// used by the TUI and ingest commands, blocks on the HTTP server, and shuts
+// down cleanly on SIGINT/SIGTERM so the DB connection is closed.
+func runWeb(args []string) error {
+	fs := flag.NewFlagSet("web", flag.ContinueOnError)
+	host := fs.String("host", "127.0.0.1", "interface to bind (use 0.0.0.0 to expose on the network)")
+	port := fs.Int("port", 7777, "port to listen on")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+
+	_, st, err := openStore()
+	if err != nil {
+		return err
+	}
+	defer st.Close()
+
+	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer cancel()
+
+	return web.Run(ctx, st, web.Options{Host: *host, Port: *port})
 }
 
 func runIngestParsed(st *store.Store, runtime string, quiet, stream bool) error {
@@ -450,5 +482,7 @@ func printUsage() {
 	fmt.Println("         --runtime codex --quiet                 Ingest Codex hook (silent)")
 	fmt.Println("  health                                         Check SQLite access")
 	fmt.Println("  tui                                            Open the terminal UI")
+	fmt.Println("  web [--host 127.0.0.1] [--port 7777]           Serve the read-only web UI")
+	fmt.Println("  --web                                          Shortcut for `web`")
 	fmt.Println("  version [--json]                               Show build and release metadata")
 }

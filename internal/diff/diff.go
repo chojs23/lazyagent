@@ -1,32 +1,35 @@
-package tui
+// Package diff implements line-level diffing using the Myers algorithm
+// (O(ND) shortest edit script). It produces unified-diff-style output with
+// optional context line trimming.
+//
+// The package is shared between the TUI detail pane and the web event-brief
+// helpers so both produce identical "+N -M" stats and diff renderings.
+package diff
 
-// Line-level diff using the Myers algorithm (O(ND) shortest edit script).
-// Produces unified-diff-style output with context lines.
-
-// DiffOp classifies a line in the edit script.
-type DiffOp int
+// Op classifies a line in the edit script.
+type Op int
 
 const (
-	DiffEqual  DiffOp = iota // line appears in both old and new
-	DiffDelete               // line removed from old
-	DiffInsert               // line added in new
+	OpEqual  Op = iota // line appears in both old and new
+	OpDelete           // line removed from old
+	OpInsert           // line added in new
 )
 
-// DiffLine is a single entry in the edit script.
-type DiffLine struct {
-	Op   DiffOp
+// Line is a single entry in the edit script.
+type Line struct {
+	Op   Op
 	Text string
 }
 
-// DiffStats holds aggregate counts for a diff.
-type DiffStats struct {
+// Stats holds aggregate counts for a diff.
+type Stats struct {
 	Additions int
 	Deletions int
 }
 
-// ComputeDiff returns the shortest edit script between old and new line slices
+// Compute returns the shortest edit script between old and new line slices
 // using the Myers diff algorithm.
-func ComputeDiff(oldLines, newLines []string) []DiffLine {
+func Compute(oldLines, newLines []string) []Line {
 	n := len(oldLines)
 	m := len(newLines)
 	max := n + m
@@ -64,87 +67,79 @@ func ComputeDiff(oldLines, newLines []string) []DiffLine {
 			v[idx] = x
 
 			if x >= n && y >= m {
-				// backtrack to build the edit script
 				return backtrack(trace, oldLines, newLines, d, max)
 			}
 		}
 	}
 
-	// fallback: should not reach here
-	return fallbackDiff(oldLines, newLines)
+	return fallback(oldLines, newLines)
 }
 
-func backtrack(trace [][]int, oldLines, newLines []string, d, max int) []DiffLine {
-	var script []DiffLine
+func backtrack(trace [][]int, oldLines, newLines []string, d, max int) []Line {
+	var script []Line
 	x := len(oldLines)
 	y := len(newLines)
 
 	for di := d; di > 0; di-- {
-		// trace[di] = V snapshot taken at the START of step di = V after step di-1
 		v := trace[di]
 		k := x - y
 
-		// determine which diagonal we came from
 		var prevK int
 		if k == -di || (k != di && v[k-1+max] < v[k+1+max]) {
-			prevK = k + 1 // down move (insert)
+			prevK = k + 1
 		} else {
-			prevK = k - 1 // right move (delete)
+			prevK = k - 1
 		}
 
 		prevX := v[prevK+max]
 		prevY := prevX - prevK
 
-		// follow diagonals backward (equal lines)
 		for x > prevX && y > prevY {
 			x--
 			y--
-			script = append(script, DiffLine{DiffEqual, oldLines[x]})
+			script = append(script, Line{OpEqual, oldLines[x]})
 		}
 
-		// emit the move
 		if prevK == k+1 {
 			y--
-			script = append(script, DiffLine{DiffInsert, newLines[y]})
+			script = append(script, Line{OpInsert, newLines[y]})
 		} else {
 			x--
-			script = append(script, DiffLine{DiffDelete, oldLines[x]})
+			script = append(script, Line{OpDelete, oldLines[x]})
 		}
 	}
 
-	// remaining diagonal at d=0
 	for x > 0 && y > 0 {
 		x--
 		y--
-		script = append(script, DiffLine{DiffEqual, oldLines[x]})
+		script = append(script, Line{OpEqual, oldLines[x]})
 	}
 
-	// reverse since we built it backwards
 	for i, j := 0, len(script)-1; i < j; i, j = i+1, j-1 {
 		script[i], script[j] = script[j], script[i]
 	}
 	return script
 }
 
-func fallbackDiff(oldLines, newLines []string) []DiffLine {
-	var result []DiffLine
+func fallback(oldLines, newLines []string) []Line {
+	var result []Line
 	for _, l := range oldLines {
-		result = append(result, DiffLine{DiffDelete, l})
+		result = append(result, Line{OpDelete, l})
 	}
 	for _, l := range newLines {
-		result = append(result, DiffLine{DiffInsert, l})
+		result = append(result, Line{OpInsert, l})
 	}
 	return result
 }
 
-// Stats returns the addition/deletion counts for the diff.
-func Stats(script []DiffLine) DiffStats {
-	var s DiffStats
+// Count returns the addition/deletion counts for the diff.
+func Count(script []Line) Stats {
+	var s Stats
 	for _, dl := range script {
 		switch dl.Op {
-		case DiffInsert:
+		case OpInsert:
 			s.Additions++
-		case DiffDelete:
+		case OpDelete:
 			s.Deletions++
 		}
 	}
@@ -152,17 +147,16 @@ func Stats(script []DiffLine) DiffStats {
 }
 
 // WithContext filters a diff script to show only hunks with changes,
-// surrounded by up to contextLines of equal lines. Collapsed regions
-// are represented by a single DiffEqual line with text "".
-func WithContext(script []DiffLine, contextLines int) []DiffLine {
+// surrounded by up to contextLines of equal lines. Collapsed regions are
+// represented by a single OpEqual line with text "~~~".
+func WithContext(script []Line, contextLines int) []Line {
 	if len(script) == 0 {
 		return nil
 	}
 
-	// mark which lines are "near" a change
 	keep := make([]bool, len(script))
 	for i, dl := range script {
-		if dl.Op != DiffEqual {
+		if dl.Op != OpEqual {
 			lo := max(0, i-contextLines)
 			hi := min(len(script), i+contextLines+1)
 			for j := lo; j < hi; j++ {
@@ -171,7 +165,6 @@ func WithContext(script []DiffLine, contextLines int) []DiffLine {
 		}
 	}
 
-	// all lines are context (no changes) -- return as-is
 	allKept := true
 	for _, k := range keep {
 		if !k {
@@ -183,7 +176,7 @@ func WithContext(script []DiffLine, contextLines int) []DiffLine {
 		return script
 	}
 
-	var result []DiffLine
+	var result []Line
 	inGap := false
 	for i, dl := range script {
 		if keep[i] {
@@ -191,7 +184,7 @@ func WithContext(script []DiffLine, contextLines int) []DiffLine {
 			result = append(result, dl)
 		} else if !inGap {
 			inGap = true
-			result = append(result, DiffLine{DiffEqual, "~~~"})
+			result = append(result, Line{OpEqual, "~~~"})
 		}
 	}
 	return result

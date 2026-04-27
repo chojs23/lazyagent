@@ -2,7 +2,6 @@ package tui
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"sort"
 	"strings"
@@ -10,10 +9,9 @@ import (
 	"charm.land/lipgloss/v2"
 
 	"github.com/chojs23/lazyagent/internal/claude"
-	"github.com/chojs23/lazyagent/internal/codex"
-	"github.com/chojs23/lazyagent/internal/jsonutil"
 	"github.com/chojs23/lazyagent/internal/model"
 	"github.com/chojs23/lazyagent/internal/store"
+	"github.com/chojs23/lazyagent/internal/tokens"
 )
 
 type tokensOverlay struct {
@@ -23,8 +21,6 @@ type tokensOverlay struct {
 	session *model.Session
 	err     string
 }
-
-var tokenEventPageSize = 2000
 
 func (t *tokensOverlay) toggle(session *model.Session, st *store.Store) {
 	if t.visible {
@@ -48,60 +44,9 @@ func (t *tokensOverlay) load(session *model.Session, st *store.Store) {
 		t.err = "No session selected"
 		return
 	}
-
-	switch session.Runtime {
-	case "claude":
-		t.loadClaude(session)
-	case "codex":
-		t.loadCodex(session)
-	default:
-		t.loadFromEvents(session, st)
-	}
-}
-
-func (t *tokensOverlay) loadClaude(session *model.Session) {
-	tp := session.TranscriptPath
-	if tp == "" {
-		t.err = "No transcript path"
-		return
-	}
-	summary, err := claude.ReadTranscriptTokens(tp)
+	summary, err := tokens.For(context.Background(), st, session)
 	if err != nil {
-		t.err = "Failed to read transcript: " + err.Error()
-		return
-	}
-	t.summary = summary
-}
-
-func (t *tokensOverlay) loadCodex(session *model.Session) {
-	tp := session.TranscriptPath
-	if tp == "" {
-		t.err = "No transcript path"
-		return
-	}
-	summary, err := codex.ReadTranscriptTokens(tp)
-	if err != nil {
-		t.err = "Failed to read transcript: " + err.Error()
-		return
-	}
-	if summary == nil {
-		t.err = "No token data available"
-		return
-	}
-	t.summary = summary
-}
-
-func (t *tokensOverlay) loadFromEvents(session *model.Session, st *store.Store) {
-	if st == nil {
-		t.err = "No store"
-		return
-	}
-
-	ctx := context.Background()
-	q := st.Read()
-	summary, err := readEventTokenSummary(ctx, q, session.ID)
-	if err != nil {
-		t.err = "Failed to load events: " + err.Error()
+		t.err = err.Error()
 		return
 	}
 	if summary == nil || summary.APICalls == 0 {
@@ -109,155 +54,6 @@ func (t *tokensOverlay) loadFromEvents(session *model.Session, st *store.Store) 
 		return
 	}
 	t.summary = summary
-}
-
-type eventTokenMessage struct {
-	modelName string
-	tokens    claude.TokenUsage
-}
-
-type eventTokenAggregator struct {
-	summary  *claude.SessionTokenSummary
-	messages map[string]eventTokenMessage
-}
-
-func newEventTokenAggregator() *eventTokenAggregator {
-	return &eventTokenAggregator{
-		summary: &claude.SessionTokenSummary{
-			ModelBreakdown: make(map[string]*claude.ModelStats),
-			ToolBreakdown:  make(map[string]*claude.ToolStats),
-			BashBreakdown:  make(map[string]*claude.ToolStats),
-		},
-		messages: make(map[string]eventTokenMessage),
-	}
-}
-
-func readEventTokenSummary(ctx context.Context, q *store.Queries, sessionID string) (*claude.SessionTokenSummary, error) {
-	agg := newEventTokenAggregator()
-	offset := 0
-
-	for {
-		events, err := q.ListEventsForSessionTree(ctx, sessionID, model.EventFilter{
-			Limit:  tokenEventPageSize,
-			Offset: offset,
-		})
-		if err != nil {
-			return nil, err
-		}
-		if len(events) == 0 {
-			break
-		}
-
-		for _, ev := range events {
-			agg.consume(ev)
-		}
-
-		offset += len(events)
-		if len(events) < tokenEventPageSize {
-			break
-		}
-	}
-
-	return agg.finalize(), nil
-}
-
-func (a *eventTokenAggregator) consume(ev model.Event) {
-	switch ev.Subtype {
-	case "MessageUpdated":
-		var p map[string]any
-		if err := json.Unmarshal([]byte(ev.Payload), &p); err != nil {
-			return
-		}
-		if jsonutil.GetString(p, "message_role") != "assistant" {
-			return
-		}
-
-		messageID := jsonutil.GetString(p, "message_id")
-		if messageID == "" {
-			messageID = fmt.Sprintf("event:%d", ev.ID)
-		}
-
-		modelName := jsonutil.GetString(p, "model_id")
-		if modelName == "" {
-			modelName = "unknown"
-		}
-
-		a.messages[messageID] = eventTokenMessage{
-			modelName: modelName,
-			tokens: claude.TokenUsage{
-				InputTokens:         parseTokenInt(jsonutil.GetString(p, "tokens_input")),
-				OutputTokens:        parseTokenInt(jsonutil.GetString(p, "tokens_output")),
-				CacheReadTokens:     parseTokenInt(jsonutil.GetString(p, "tokens_cache_read")),
-				CacheCreationTokens: parseTokenInt(jsonutil.GetString(p, "tokens_cache_write")),
-			},
-		}
-
-	case "PreToolUse":
-		if ev.ToolName == "" {
-			return
-		}
-		if !strings.HasPrefix(ev.ToolName, "mcp__") {
-			ts, ok := a.summary.ToolBreakdown[ev.ToolName]
-			if !ok {
-				ts = &claude.ToolStats{}
-				a.summary.ToolBreakdown[ev.ToolName] = ts
-			}
-			ts.Calls++
-		}
-
-		if ev.ToolName == "Bash" || ev.ToolName == "BashTool" {
-			var p map[string]any
-			if err := json.Unmarshal([]byte(ev.Payload), &p); err != nil {
-				return
-			}
-			input := jsonutil.MapOrEmpty(p["tool_input"])
-			if len(input) == 0 {
-				input = jsonutil.MapOrEmpty(p["args"])
-			}
-			cmd := jsonutil.GetString(input, "command")
-			for _, name := range claude.ExtractCommandNames(cmd) {
-				bs, ok := a.summary.BashBreakdown[name]
-				if !ok {
-					bs = &claude.ToolStats{}
-					a.summary.BashBreakdown[name] = bs
-				}
-				bs.Calls++
-			}
-		}
-	}
-}
-
-func (a *eventTokenAggregator) finalize() *claude.SessionTokenSummary {
-	for _, msg := range a.messages {
-		cost := claude.CalculateCost(msg.modelName, msg.tokens)
-
-		a.summary.Tokens.Add(msg.tokens)
-		a.summary.CostUSD += cost
-		a.summary.APICalls++
-
-		ms, ok := a.summary.ModelBreakdown[msg.modelName]
-		if !ok {
-			ms = &claude.ModelStats{}
-			a.summary.ModelBreakdown[msg.modelName] = ms
-		}
-		ms.Calls++
-		ms.Tokens.Add(msg.tokens)
-		ms.CostUSD += cost
-	}
-
-	if a.summary.APICalls == 0 {
-		return nil
-	}
-	return a.summary
-}
-
-func parseTokenInt(s string) int64 {
-	if s == "" || s == "0" {
-		return 0
-	}
-	var n int64
-	fmt.Sscanf(s, "%d", &n)
-	return n
 }
 
 func (t *tokensOverlay) calcView(width, height int) (int, int, int) {
