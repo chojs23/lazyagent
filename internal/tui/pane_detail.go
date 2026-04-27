@@ -9,6 +9,7 @@ import (
 	"charm.land/bubbles/v2/viewport"
 	"charm.land/lipgloss/v2"
 
+	"github.com/chojs23/lazyagent/internal/diff"
 	"github.com/chojs23/lazyagent/internal/jsonutil"
 	"github.com/chojs23/lazyagent/internal/model"
 	"github.com/chojs23/lazyagent/internal/textutil"
@@ -455,19 +456,19 @@ func (d *detailModel) renderDiffBlock(label, filePath, oldStr, newStr string, ex
 	lang := langFromPath(filePath)
 	oldLines := splitLines(oldStr)
 	newLines := splitLines(newStr)
-	script := ComputeDiff(oldLines, newLines)
-	stats := Stats(script)
+	script := diff.Compute(oldLines, newLines)
+	stats := diff.Count(script)
 
-	contextScript := WithContext(script, 3)
+	contextScript := diff.WithContext(script, 3)
 
 	var lines []string
 	for _, dl := range contextScript {
 		switch dl.Op {
-		case DiffDelete:
+		case diff.OpDelete:
 			lines = append(lines, removePrefix+highlightLine(dl.Text, lang, hlBgDel))
-		case DiffInsert:
+		case diff.OpInsert:
 			lines = append(lines, addPrefix+highlightLine(dl.Text, lang, hlBgAdd))
-		case DiffEqual:
+		case diff.OpEqual:
 			if dl.Text == "~~~" {
 				lines = append(lines, sepStyle.Render("  ~~~"))
 			} else {
