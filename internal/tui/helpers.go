@@ -2,11 +2,21 @@ package tui
 
 import (
 	"fmt"
+	"strings"
 	"time"
 	"unicode/utf8"
 
 	"github.com/charmbracelet/x/ansi"
 )
+
+// splitLines splits a string into lines, returning nil for empty input
+// instead of []string{""} which strings.Split produces.
+func splitLines(s string) []string {
+	if s == "" {
+		return nil
+	}
+	return strings.Split(s, "\n")
+}
 
 func formatTime(ts int64) string {
 	if ts == 0 {

@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>lazyagent</title>
+  <link rel="stylesheet" href="/style.css" />
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">lazyagent <span class="brand-sub">web</span></div>
+    <div class="controls">
+      <label class="auto-refresh">
+        <input id="auto-refresh" type="checkbox" checked /> auto refresh
+      </label>
+      <button id="refresh-btn" type="button">refresh</button>
+    </div>
+  </header>
+  <main class="layout no-detail" id="layout">
+    <section class="pane pane-projects">
+      <h2>Projects</h2>
+      <ul id="project-tree" class="tree"></ul>
+    </section>
+    <div class="splitter" data-splitter="0" role="separator" aria-orientation="vertical" tabindex="0"></div>
+    <section class="pane pane-middle">
+      <header class="pane-head">
+        <div class="pane-head-top">
+          <h2>Session</h2>
+          <div id="session-meta" class="muted">no session selected</div>
+        </div>
+        <div class="pane-head-actions">
+          <button id="usage-btn" type="button" class="usage-btn" disabled>token usage</button>
+        </div>
+      </header>
+      <div class="agents-block" id="agents-block">
+        <h3 class="collapsible" data-toggle="agents-block">
+          <span class="caret">▶</span>
+          Agents <span id="agents-count" class="count-badge"></span>
+        </h3>
+        <ul id="agent-list" class="list compact"></ul>
+      </div>
+      <div class="events-block" id="events-block">
+        <header class="events-head">
+          <h3 class="collapsible" data-toggle="events-block">
+            <span class="caret">▶</span>
+            Events <span id="events-count" class="count-badge"></span>
+          </h3>
+          <div class="filters">
+            <select id="filter-type">
+              <option value="">all types</option>
+              <option value="user">user</option>
+              <option value="message">message</option>
+              <option value="codechange">code</option>
+              <option value="system">system</option>
+              <option value="tool">tool</option>
+              <option value="session">session</option>
+            </select>
+            <input id="filter-search" type="text" placeholder="search payload" />
+          </div>
+        </header>
+        <ul id="event-list" class="list events"></ul>
+      </div>
+    </section>
+    <div class="splitter" data-splitter="1" role="separator" aria-orientation="vertical" tabindex="0"></div>
+    <section class="pane pane-detail">
+      <h2>Event detail</h2>
+      <div id="event-detail" class="detail muted">select an event</div>
+    </section>
+  </main>
+  <div id="usage-modal" class="modal hidden" role="dialog" aria-modal="true" aria-hidden="true">
+    <div class="modal-backdrop" data-action="close-usage"></div>
+    <div class="modal-card">
+      <header class="modal-head">
+        <h3>Token usage</h3>
+        <button class="modal-close" type="button" data-action="close-usage">×</button>
+      </header>
+      <div id="usage-body" class="modal-body muted">loading…</div>
+    </div>
+  </div>
+  <script src="/app.js" defer></script>
+</body>
+</html>

@@ -2,15 +2,17 @@
 
 <img alt="lazyagent" src="./docs/screenshot.png" />
 
-`lazyagent` is a terminal TUI app for watching what ai agents are doing. You can inspect projects, sessions, agents, subagents, tools, prompts and outputs in one place.
+<img alt="lazyagent" src="./docs/lazyagent-web.png" />
 
-The TUI is built for day to day observability. You can see which session belongs to which project, which agent or subagent is active, what tool ran, and what happened next.
+`lazyagent` is a tui/web app for watching what ai agents are doing. You can inspect projects, sessions, agents, subagents, tools, prompts and outputs in one place.
+
+It is built for day to day observability. You can see which session belongs to which project, which agent or subagent is active, what tool ran, and what happened next.
 
 It also helps you check whether each agent is doing the work that fits its role, so it is easier to spot when a run goes off track.
 
 <img alt="lazyagent" src="./docs/usage_overlay.png" />
 
-You can also check token usage breakdowns for each session, so you can see how many tokens were spent on the model, how many were saved by cache reuse, and how many were spent on cache creation.
+You can check token usage breakdowns for each session, so you can see how many tokens were spent on the model, how many were saved by cache reuse, and how many were spent on cache creation.
 
 ## Features
 
@@ -18,12 +20,13 @@ You can also check token usage breakdowns for each session, so you can see how m
 - **Subagent hierarchy** -- See which agents spawned which subagents, displayed as a visual tree.
 - **Event stream with filtering** -- Filter events by type (tool, user, session, system, code) or by agent. Full-text search across event payloads.
 - **Syntax and diff highlighting** -- Code blocks and diffs in event payloads are syntax-highlighted for readability.
+- **Web UI** -- A read-only browser dashboard with the same data as the TUI, launched with `lazyagent --web`.
 
 > lazyagent is still early in development, some breaking changes may happen.
 
 ## Installation
 
-### NPM
+### npm
 
 ```bash
 npm install -g @chojs23/lazyagent
@@ -228,13 +231,25 @@ Detail pane keys:
 
 ## Usage
 
-Run the lazyagent:
+Run the lazyagent on your terminal:
 
 ```bash
 lazyagent
 ```
 
-Project grouping is automatic. `lazyagent` first tries to match sessions by working directory such as `cwd` or `project_dir`, then falls back to transcript path information when needed. That means Claude, Codex, and OpenCode sessions from the same worktree are usually grouped under the same project in the TUI.
+`lazyagent` ships a read-only browser dashboard that reads from the same SQLite store as the TUI.
+Start it with:
+
+```bash
+lazyagent --web                # bind 127.0.0.1:7777
+lazyagent --web --port 8080    # custom port
+lazyagent --web --host 0.0.0.0 # expose on the network
+lazyagent web --port 8080      # subcommand form
+```
+
+The `--web` flag is read-only by design: ingestion is still handled by the runtime hooks/plugins.
+
+Project grouping is automatic. `lazyagent` first tries to match sessions by working directory such as `cwd` or `project_dir`, then falls back to transcript path information when needed. That means Claude, Codex, and OpenCode sessions from the same worktree are usually grouped under the same project.
 
 ### Filtering and search
 
@@ -313,6 +328,17 @@ Check whether the SQLite database can be opened.
 
 ```bash
 lazyagent health
+```
+
+#### `lazyagent web`
+
+Serve the read-only web dashboard. Defaults to `127.0.0.1:7777`.
+
+```bash
+lazyagent web
+lazyagent web --port 8080
+lazyagent web --host 0.0.0.0
+lazyagent --web              # shortcut
 ```
 
 #### `lazyagent version`
