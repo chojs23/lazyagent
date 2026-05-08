@@ -13,6 +13,12 @@ let streamChild: ChildProcess | null = null;
 let childAlive = false;
 let respawning = false;
 
+type ToolExecuteAfterPayload = {
+  title?: unknown;
+  output?: unknown;
+  metadata?: unknown;
+};
+
 export type QueueWriter = {
   writable: boolean;
   write(chunk: string, callback: (error?: Error | null) => void): boolean;
@@ -264,6 +270,19 @@ function sanitizeValue(value: unknown, depth = 0): unknown {
   return String(value);
 }
 
+export function serializeToolOutput(value: unknown, maxLen = 10000): string | null {
+  if (typeof value === "string") {
+    return value.slice(0, maxLen);
+  }
+
+  try {
+    const serialized = JSON.stringify(value);
+    return typeof serialized === "string" ? serialized.slice(0, maxLen) : null;
+  } catch (error) {
+    return String(error).slice(0, maxLen);
+  }
+}
+
 function extractPartData(
   part: Record<string, unknown>,
   preserveRaw = false
@@ -510,18 +529,17 @@ export const LazyagentPlugin: Plugin = async ({ directory }) => {
 
     "tool.execute.after": async (
       { tool, sessionID, callID },
-      { title, output, metadata }
+      afterPayload: ToolExecuteAfterPayload | undefined
     ) => {
+      const { title, output, metadata } = afterPayload ?? {};
+
       ingest({
         event: "tool.execute.after",
         session_id: sessionID,
         tool,
         call_id: callID,
         title,
-        output:
-          typeof output === "string"
-            ? output.slice(0, 10000)
-            : JSON.stringify(output).slice(0, 10000),
+        output: serializeToolOutput(output),
         metadata,
         project_dir: projectDir,
         timestamp: Date.now(),
